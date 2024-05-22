@@ -15,6 +15,7 @@
 #define Hadamard 2
 #define CNOT 3
 #define CRk 4
+#define TOFFOLI 5
 
 using std::chrono::high_resolution_clock;
 using std::chrono::duration_cast;
@@ -67,6 +68,9 @@ public:
         }
         if (identifier == 4 && qbits.size() != 2){
             cout << "Controlled Rk is on exactly 2 qbits" << endl;
+        }
+        if (identifier == 5 && qbits.size() != 3){
+            cout << "toffoli is on exactly 3 qbits" << endl;
         }
         this->qbits = qbits;
     }
@@ -121,8 +125,36 @@ public:
         size_t beg, end;
         size_t begmat, endmat;
         switch(identifier){
-            case CRk: {//CNOT
-                //CNOT being a small gate, it is more interesting to make parallel the index of qbitstates
+            case TOFFOLI: {
+                size_t to_cover = (1llu << (nqbits - 3));
+                size_t work_per_thread  = to_cover/blockDim.x;
+                if (work_per_thread == 0){ //not enough qbits to fully utilize even a simple block... consider putting less threads per block or using cpu here
+                    beg = initline;
+                    end = (initline < to_cover) ? initline+1 : initline;
+                } else {
+                    beg = initline*work_per_thread;
+                    end = (initline+1)*work_per_thread;
+                }
+                //we don't even need to put the gate in memory since it s not dense, let's get our indexes
+                int lq0 = bit_to_groupbitnumber[qbits[0]];
+                int lq1 = bit_to_groupbitnumber[qbits[1]];
+                int lq2 = bit_to_groupbitnumber[qbits[2]];
+                
+                size_t mask0, mask1, mask2, mask3;
+                mask0 = (1llu << (bit_to_groupbitnumber[ordered_qbits[0]])) - 1;
+                mask1 = (1llu << (bit_to_groupbitnumber[ordered_qbits[1]] - 1)) - 1 - mask0;
+                mask2 = (1llu << (bit_to_groupbitnumber[ordered_qbits[2]] - 2)) - 1 - mask0 - mask1;
+                mask3 = (1llu << (nqbits-3)) - 1 - mask0 - mask1 - mask2;
+                for (size_t line = beg; line < end; line++){
+                    size_t index110 = (1llu << lq0) + (1llu << lq1) + (line&mask0) + ((line&mask1) << (1)) + ((line&mask2) << (2)) + ((line&mask3) << (3)); //XXXXX-lq1(1)-XXXXX-lq0(0)-XXXXX
+                    size_t index111 = index110 + (1llu << lq2);
+                    auto temp = qbitsstateshared[index110];
+                    qbitsstateshared[index110] = qbitsstateshared[index111];
+                    qbitsstateshared[index111] = temp;
+                }
+                break;
+            }
+            case CRk: {
                 size_t to_cover = (1llu << (nqbits - 2));
                 size_t work_per_thread  = to_cover/blockDim.x;
                 if (work_per_thread == 0){ //not enough qbits to fully utilize even a simple block... consider putting less threads per block or using cpu here
@@ -721,6 +753,10 @@ public:
                     break;
                 case CRk:
                     temp = 0.25;
+                    optim(i, i+1, temp);
+                    break;
+                case TOFFOLI:
+                    temp = (double)3/8;
                     optim(i, i+1, temp);
                     break;
             }
