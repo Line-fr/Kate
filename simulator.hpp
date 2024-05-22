@@ -122,7 +122,7 @@ __global__ void executeGroupKernelSharedState(int nqbits, Complex<T>* qbitsstate
         for (int i = 0; i < groupnqbits; i++){
             finalbaseind += ((line >> i)%2) << groupqbits[i];
         }
-        
+
         qbitsstateshared[line] = qbitsstate[finalbaseind];
         //printf("value at line: %i is %f with finalbaseind : %i\n", line, qbitsstateshared[line].a, (int)finalbaseind);
     }
@@ -427,6 +427,10 @@ private:
             size_t totalshared_block = devattr.sharedMemPerBlock;
             int threadnumber = min(1024llu, (1llu << (qbits.size())));
             int blocknumber = min((1llu << 20), (1llu << ((nqbits - number_of_gpu_log2) - qbits.size())));
+            if ((1llu << qbits.size()) > totalshared_block){
+                cout << "too much qbits in one group for this gpu's shared memory... I cancel this group's computation" << endl;
+                continue;
+            }
             executeGroupKernelSharedState<<<dim3(blocknumber), dim3(threadnumber), totalshared_block, 0>>>((nqbits - number_of_gpu_log2), gpu_qbits_states[m], qbits.size(), groupqbitsgpu[m], gpuc[m].gates+i, j-i, totalshared_block - sizeof(Complex<T>)*(1llu << qbits.size()));
         }
 
