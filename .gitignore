@@ -4,3 +4,7 @@
 *.ptx
 *.cubin
 *.fatbin
+.vscode
+*.pdb
+a.exe
+a.out
