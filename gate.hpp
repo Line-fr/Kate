@@ -519,7 +519,7 @@ __host__ Gate<T> mergedGateMadness(vector<Gate<T>> to_merge, hipStream_t stream 
         gate.qbits = temp;
     }*/
     QuantumCircuit<T> to_mergecirc(to_merge, total_covered.size()); //temporary encapsulation to call the GPU one
-    GPUQuantumCircuit<T> gpucircuit = createGPUQuantumCircuit<double>(to_mergecirc);
+    GPUQuantumCircuit<T> gpucircuit = createGPUQuantumCircuit<T>(to_mergecirc);
     //now the circuit is ready for inputing into the kernel
     //let's generate the returned GPUGate
     GPUGate<T> resGPU = createGPUGate<T>(total_covered.size(), vector<int>(total_covered.begin(), total_covered.end())); //the kernel will fill the matrix and these informations will be correct
