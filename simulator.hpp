@@ -101,6 +101,7 @@ __global__ void executeGroupKernelSharedState(int nqbits, Complex<T>* qbitsstate
     }
     mask_group[groupnqbits] = (1llu << (nqbits - groupnqbits)) - 1 - cumulative;
 
+
     size_t groupbaseind = 0;
     for (int i = 0; i <= groupnqbits; i++){
         groupbaseind += ((groupel&mask_group[i]) << i);
@@ -115,12 +116,13 @@ __global__ void executeGroupKernelSharedState(int nqbits, Complex<T>* qbitsstate
 
         qbitsstateshared[initline] = qbitsstate[finalbaseind];
     }
+    
     for (int line = initline*work_per_thread0; line < (initline+1)*work_per_thread0; line++){
         size_t finalbaseind = groupbaseind;
         for (int i = 0; i < groupnqbits; i++){
             finalbaseind += ((line >> i)%2) << groupqbits[i];
         }
-
+        
         qbitsstateshared[line] = qbitsstate[finalbaseind];
         //printf("value at line: %i is %f with finalbaseind : %i\n", line, qbitsstateshared[line].a, (int)finalbaseind);
     }

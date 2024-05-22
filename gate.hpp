@@ -9,10 +9,23 @@
 #include<list>
 #include<chrono>
 
+#define PI 3.1415926535897932384626433
+#define SQRT2 1.4142135623730951
+#define SQRT2INV 0.7071067811865475
+#define Hadamard 2
+#define CNOT 3
+#define CRk 4
+
 using std::chrono::high_resolution_clock;
 using std::chrono::duration_cast;
 using std::chrono::duration;
 using std::chrono::milliseconds;
+
+template<typename T>
+__device__ Complex<T> exp(Complex<T> i){
+    double temp = exp(i.a);
+    return Complex<T>(temp*cos(i.b), temp*sin(i.b));
+}
 
 set<int> union_elements(set<int>& a, set<int>& b){
     set<int> c = b;
@@ -37,10 +50,12 @@ template<typename T>
 class Gate{
 public:
     int identifier = -1; //0 is dense, 2 is H, 3 is CNOT,...
+    int optarg;
     Matrix<Complex<T>> densecontent = NULL;
     vector<int> qbits;
-    Gate(int identifier, vector<int>& qbits){
+    Gate(int identifier, vector<int>& qbits, int optarg = 0){
         this->identifier = identifier;
+        this->optarg = optarg;
         if (identifier == 0) {
             cout << "you are creating a dense matrix without specifying it. Memory error incoming" << endl;
         }
@@ -50,10 +65,21 @@ public:
         if (identifier == 3 && qbits.size() != 2){
             cout << "CNOT is on exactly 2 qbits" << endl;
         }
+        if (identifier == 4 && qbits.size() != 2){
+            cout << "Controlled Rk is on exactly 2 qbits" << endl;
+        }
         this->qbits = qbits;
     }
     Gate(Matrix<Complex<T>>& densecontent, vector<int>& qbits){
         identifier = 0;
+        this->densecontent = densecontent;
+        this->qbits = qbits;
+        if ((1llu << qbits.size()) != densecontent.n){
+            cout << "size mismatch dense matrix dimension error" << endl;
+        }
+    }
+    Gate(int identifier, Matrix<Complex<T>>& densecontent, vector<int>& qbits){
+        this->identifier = identifier;
         this->densecontent = densecontent;
         this->qbits = qbits;
         if ((1llu << qbits.size()) != densecontent.n){
@@ -84,6 +110,7 @@ template<typename T>
 class GPUGate{
 public:
     int identifier = -1;
+    int optarg;
     GPUMatrix<Complex<T>> densecontent;
     int* qbits = NULL;
     int* ordered_qbits = NULL;
@@ -94,7 +121,33 @@ public:
         size_t beg, end;
         size_t begmat, endmat;
         switch(identifier){
-            case 3: {//CNOT
+            case CRk: {//CNOT
+                //CNOT being a small gate, it is more interesting to make parallel the index of qbitstates
+                size_t to_cover = (1llu << (nqbits - 2));
+                size_t work_per_thread  = to_cover/blockDim.x;
+                if (work_per_thread == 0){ //not enough qbits to fully utilize even a simple block... consider putting less threads per block or using cpu here
+                    beg = initline;
+                    end = (initline < to_cover) ? initline+1 : initline;
+                } else {
+                    beg = initline*work_per_thread;
+                    end = (initline+1)*work_per_thread;
+                }
+                //we don't even need to put the gate in memory since it s not dense, let's get our indexes
+                int lq0 = bit_to_groupbitnumber[qbits[0]];
+                int lq1 = bit_to_groupbitnumber[qbits[1]];
+                size_t mask0, mask1, mask2;
+                mask0 = (1llu << (bit_to_groupbitnumber[ordered_qbits[0]])) - 1;
+                mask1 = (1llu << (bit_to_groupbitnumber[ordered_qbits[1]] - 1)) - 1 - mask0;
+                mask2 = (1llu << (nqbits-2)) - 1 - mask0 - mask1;
+                for (size_t line = beg; line < end; line++){
+                    size_t index10 = (1llu << lq1) + (line&mask0) + ((line&mask1) << (1)) + ((line&mask2) << (2)); //XXXXX-lq1(1)-XXXXX-lq0(0)-XXXXX
+                    size_t index11 = index10 + (1llu << lq0);
+                    double temp = ((double)2*PI)/(1llu << (optarg));
+                    qbitsstateshared[index11] *= Complex<T>(cos(temp), sin(temp));
+                }
+                break;
+            }
+            case CNOT: {//CNOT
                 //CNOT being a small gate, it is more interesting to make parallel the index of qbitstates
                 size_t to_cover = (1llu << (nqbits - 2));
                 size_t work_per_thread  = to_cover/blockDim.x;
@@ -121,7 +174,7 @@ public:
                 }
                 break;
             }
-            case 2: { //H
+            case Hadamard: { //H
                 //H being a small gate, it is more interesting to make parallel the index of qbitstates
                 size_t to_cover = (1llu << (nqbits - 1));
                 size_t work_per_thread  = to_cover/blockDim.x;
@@ -141,8 +194,8 @@ public:
                     size_t index0 = (line&mask0) + ((line&mask1) << (1)); //XXXXX-lq0(0)-XXXXX
                     size_t index1 = index0 + (1llu << lq0);
                     //printf("index 0 : %llu , index 1 : %llu for lq0 : %i\n values before execution : %f, %f\n", index0, index1, lq0, qbitsstateshared[index0].a, qbitsstateshared[index1].a);
-                    qbitsstateshared[index0] = (qbitsstateshared[index0]+qbitsstateshared[index1])*0.7071067812;
-                    qbitsstateshared[index1] = qbitsstateshared[index0] - qbitsstateshared[index1]*1.414213562;
+                    qbitsstateshared[index0] = (qbitsstateshared[index0]+qbitsstateshared[index1])*SQRT2INV;
+                    qbitsstateshared[index1] = qbitsstateshared[index0] - qbitsstateshared[index1]*SQRT2;
                     //printf("index 0 : %llu , index 1 : %llu for lq0 : %i\n values after execution : %f, %f\n", index0, index1, lq0, qbitsstateshared[index0].a, qbitsstateshared[index1].a);
                 }
                 break;
@@ -223,6 +276,7 @@ template<typename T>
 GPUGate<T> createGPUGate(const Gate<T>& other){
     GPUGate<T> res;
     res.identifier = other.identifier;
+    res.optarg = other.optarg;
     res.densecontent = createGPUMatrix<Complex<T>>(other.densecontent);
     res.nbqbits = other.qbits.size();
     hipMalloc(&res.qbits, sizeof(int)*res.nbqbits);
@@ -252,6 +306,7 @@ template<typename T>
 GPUGate<T> createGPUGateAsync(const Gate<T>& other){
     GPUGate<T> res;
     res.identifier = other.identifier;
+    res.optarg = other.optarg;
     res.densecontent = createGPUMatrixAsync<Complex<T>>(other.densecontent);
     res.nbqbits = other.qbits.size();
     hipMalloc(&res.qbits, sizeof(int)*res.nbqbits);
@@ -277,6 +332,7 @@ template<typename T>
 GPUGate<T> createGPUGate(int n, vector<int> qbits){
     GPUGate<T> res;
     res.identifier = 0;
+    res.optarg = 0;
     res.densecontent = createGPUMatrix<Complex<T>>((1llu << n));
     res.nbqbits = qbits.size();
     hipMalloc(&res.qbits, sizeof(int)*res.nbqbits);
@@ -655,12 +711,16 @@ public:
                     temp = (1llu << precompute.size());
                     optim(i, i+1, temp);
                     break;
-                case 2:
+                case Hadamard:
                     temp = 2;
                     optim(i, i+1, temp);
                     break;
-                case 3:
+                case CNOT:
                     temp = 0.75;
+                    optim(i, i+1, temp);
+                    break;
+                case CRk:
+                    temp = 0.25;
                     optim(i, i+1, temp);
                     break;
             }
@@ -737,7 +797,7 @@ public:
         groups[groups.size()-1].first = gate_set_ordered.size();
         groups[groups.size()-1].second = precompute;
     }
-    void allocate(int maxlocalqbitnumber= 28, int numberofgpulog2 = 0){ //OPTIMISATION STEP 4 (it can be further optimised taking into account multiple swaps at the same time)
+    void allocate(int numberofgpulog2 = 0, int maxlocalqbitnumber= 28){ //OPTIMISATION STEP 4 (it can be further optimised taking into account multiple swaps at the same time)
         //only support homogeneous gpus or the slow one will slow the big one
         if (maxlocalqbitnumber + numberofgpulog2 < nqbits){
             cout << "Error: Can't allocate - Too much qbits in the circuit to handle with " << maxlocalqbitnumber << " localqbits and " << (1llu << numberofgpulog2) << " gpus" << endl;
@@ -877,7 +937,7 @@ public:
         gateScheduling();
         gateFusion(qbit_matrix_merge_size_limit, merge_time_matters);
         gateGrouping(groupsize);
-        allocate(maxlocalqbitnumber, numberofgpulog2); //will try to use every gpus you give it! sometimes it is not worth it
+        allocate(numberofgpulog2, maxlocalqbitnumber); //will try to use every gpus you give it! sometimes it is not worth it
     }
     void compileDefault(int numberofgpulog2 = 0, int maxlocalqbitnumber = 28){ //for every optimization that hasnt been done but was necessary, it will use naive things to replace them
         //only support homogeneous gpus or the slow one will slow the big one
