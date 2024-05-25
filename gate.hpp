@@ -930,6 +930,7 @@ public:
                         }
                     }
                     //beware that pairs take into account permutations that have already happened!
+                    
                     pairs.push_back(make_pair(permutation[el], permutation[worstqbit]));
                     //now let's refresh permutations
                     swap(inversepermutation[permutation[el]], inversepermutation[permutation[worstqbit]]);

@@ -1,6 +1,15 @@
 #include<hip/hip_runtime.h>
 #include<stdlib.h>
 #include<iostream>
+#include<math.h>
+
+#define GPU_CHECK(x)\
+err = (x);\
+if (err != hipSuccess)\
+{\
+   	cout << hipGetErrorString(x) << " in " << __FILE__ << " at line " << __LINE__ << endl;\
+}
+hipError_t err;
 
 using namespace std;
 
@@ -27,6 +36,13 @@ class Complex{
     void print(){
         cout << a << " + " << b << "i";
     }
+    __host__
+    double norm(){
+        return sqrt(a*a + b*b);
+    }
+    double angle(){
+        return atan(b/a);
+    }
     __device__ __host__
     Complex<T> operator+(Complex<T> other){
         return Complex<T>(a+other.a, b+other.b);
@@ -46,6 +62,10 @@ class Complex{
     __device__ __host__
     Complex<T> operator*(int other){
         return Complex<T>(a*other, b*other);
+    }
+    Complex<T> operator/(Complex<T> other){
+        double n = other.a*other.a + other.b*other.b;
+        return Complex<T>((a*other.a + b*other.b)/n, (other.a*b - a*other.b)/n);
     }
     __device__ __host__
     void operator+=(Complex<T> other){
@@ -92,7 +112,7 @@ public:
     Matrix(const GPUMatrix<T>& other){
         n = other.n;
         data = (T*)malloc(sizeof(T)*n*n);
-        hipMemcpyDtoH(data, (hipDeviceptr_t)other.data, sizeof(T)*n*n);
+        GPU_CHECK(hipMemcpyDtoH(data, (hipDeviceptr_t)other.data, sizeof(T)*n*n));
     }
     ~Matrix(){
         free(data);
@@ -191,27 +211,27 @@ template<typename T>
 GPUMatrix<T> createGPUMatrix(int n){
     GPUMatrix<T> res;
     res.n = n;
-    hipMalloc(&(res.data), sizeof(T)*n*n);
+    GPU_CHECK(hipMalloc(&(res.data), sizeof(T)*n*n));
     return res;
 }
 
 template<typename T>
 GPUMatrix<T> createGPUMatrix(const Matrix<T>& other){
     GPUMatrix<T> res = createGPUMatrix<T>(other.n);
-    hipMemcpyHtoD((hipDeviceptr_t)res.data, other.data, sizeof(T)*other.n*other.n);
+    GPU_CHECK(hipMemcpyHtoD((hipDeviceptr_t)res.data, other.data, sizeof(T)*other.n*other.n));
     return res;
 }
 
 template<typename T>
 GPUMatrix<T> createGPUMatrixAsync(const Matrix<T>& other){
     GPUMatrix<T> res = createGPUMatrix<T>(other.n);
-    hipMemcpyHtoDAsync((hipDeviceptr_t)res.data, other.data, sizeof(T)*other.n*other.n, 0);
+    GPU_CHECK(hipMemcpyHtoDAsync((hipDeviceptr_t)res.data, other.data, sizeof(T)*other.n*other.n, 0));
     return res;
 }
 
 template<typename T>
 void destroyGPUMatrix(const GPUMatrix<T>& other){
-    hipFree(other.data);
+    GPU_CHECK(hipFree(other.data));
 }
 
 //only accept matrix up to 16 qbits. If needed another implemention could allow getting way higher

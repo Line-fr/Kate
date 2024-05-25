@@ -9,6 +9,25 @@ using std::chrono::duration_cast;
 using std::chrono::duration;
 using std::chrono::milliseconds;
 
+class proba_state{ //non entangled
+public:
+    vector<pair<double, double>> val;
+    proba_state(vector<pair<double, double>>& v){
+        val = v;
+    }
+    void print(){
+        for (int i = 0; i < val.size(); i++){
+            cout << "Qbit " << i << " : teta=" << val[i].first << " , phi=" << val[i].second << endl;
+        }
+    }
+};
+
+template<typename T>
+__global__ void printKernel(Complex<T>* mem){
+    size_t tid = threadIdx.x + blockIdx.x*blockDim.x;
+    printf("at %i there is %f\n", tid, mem[tid].a);
+}
+
 template<typename T>
 __global__ void initialize_state(int nqbits, Complex<T>* memory, int indexfor1){
     size_t tid = threadIdx.x + blockIdx.x*blockDim.x;
@@ -16,6 +35,46 @@ __global__ void initialize_state(int nqbits, Complex<T>* memory, int indexfor1){
 
     for (size_t i = tid*work_per_thread; i < (tid+1)*work_per_thread; i++){
         memory[i] = (i == indexfor1)? 1 : 0;
+    }
+}
+
+template<typename T>
+__global__ void initialize_probastate(int nqbits, Complex<T>* memory, Complex<T>* qbitsangles, Complex<T> offset){
+    size_t tid = threadIdx.x + blockIdx.x*blockDim.x;
+    int work_per_thread = (1llu << nqbits)/blockDim.x/gridDim.x;
+
+    Complex<T> temp;
+    for (size_t i = tid*work_per_thread; i < (tid+1)*work_per_thread; i++){
+        temp = offset;
+        for (int j = 0; j < nqbits; j++){
+            temp *= qbitsangles[((i >> j)%2)*nqbits + j];
+        }
+        memory[i] = temp;
+    }
+}
+
+template<typename T>
+__global__ void measureKernel(int nqbits, Complex<T>* qbitsstate, Complex<T>* allresultsend){
+    size_t tid = threadIdx.x + blockIdx.x*blockDim.x;
+    int work_per_block = (1llu << nqbits)/gridDim.x;
+    //int work_per_thread = (1llu << nqbits)/blockDim.x/gridDim.x;
+    //we need 2*nqbits complex to save our results
+    allresultsend += (2*nqbits)*tid;
+    Complex<T> allresults[64]; //all 0 then all 1
+    for (int i = 0; i < 2*nqbits; i++){
+        allresults[i].a = 0.;
+        allresults[i].b = 0.;
+    }
+
+    for (int i = blockIdx.x*work_per_block+threadIdx.x; i < (blockIdx.x+1)*work_per_block; i+=blockDim.x){
+        for (int qbit = 0; qbit < nqbits; qbit++){
+            allresults[nqbits*((i >> qbit)%2) + qbit] += qbitsstate[i];
+
+        }
+    }
+
+    for (int i = 0; i < 2*nqbits; i++){
+        allresultsend[i] = allresults[i];
     }
 }
 
@@ -45,37 +104,29 @@ __global__ void swapqbitKernelDirectAcess(int nqbits, int localq, Complex<T>* me
 
 template<typename T>
 __global__ void swapqbitKernelIndirectAccessEXTRACT(int nqbits, int localq, size_t qbitvalue, Complex<T>* mymemory, Complex<T>* buffer, int baseindex, int values_per_thread){
-    size_t tid = threadIdx.x + blockIdx.x*blockDim.x + baseindex;
+    size_t tid = threadIdx.x + blockIdx.x*blockDim.x;
 
     size_t mask = (1llu << localq) - 1;
     size_t mask2 = (1llu << (nqbits - 1)) - 1 - mask;
 
-    size_t bufferbeg = values_per_thread*(threadIdx.x + blockIdx.x*blockDim.x);
-    int p = 0;
-
     for (int i = tid*values_per_thread; i < (tid+1)*(values_per_thread); i++){
-        size_t baseIndex = (i&mask) + ((i&mask2) << 1);
+        size_t value = ((i+baseindex)&mask) + (((i+baseindex)&mask2) << 1);
         
-        buffer[bufferbeg+p] = mymemory[baseIndex + ((qbitvalue) << localq)]; 
-        p++;
+        buffer[i] = mymemory[value + ((qbitvalue) << localq)];
     }
 }
 
 template<typename T>
 __global__ void swapqbitKernelIndirectAccessIMPORT(int nqbits, int localq, size_t qbitvalue, Complex<T>* mymemory, Complex<T>* buffer, int baseindex, int values_per_thread){
-    size_t tid = threadIdx.x + blockIdx.x*blockDim.x + baseindex;
+    size_t tid = threadIdx.x + blockIdx.x*blockDim.x;
 
     size_t mask = (1llu << localq) - 1;
     size_t mask2 = (1llu << (nqbits - 1)) - 1 - mask;
 
-    size_t bufferbeg = values_per_thread*(threadIdx.x + blockIdx.x*blockDim.x);
-    int p = 0;
-
     for (int i = tid*values_per_thread; i < (tid+1)*(values_per_thread); i++){
-        size_t baseIndex = (i&mask) + ((i&mask2) << 1);
+        size_t value = ((i+baseindex)&mask) + (((i+baseindex)&mask2) << 1);
         
-        mymemory[baseIndex + ((qbitvalue) << localq)] = buffer[bufferbeg+p]; 
-        p++;
+        mymemory[value + ((qbitvalue) << localq)] = buffer[i];
     }
 }
 
@@ -113,7 +164,6 @@ __global__ void executeGroupKernelSharedState(int nqbits, Complex<T>* qbitsstate
         for (int i = 0; i < groupnqbits; i++){
             finalbaseind += ((initline >> i)%2) << groupqbits[i];
         }
-
         qbitsstateshared[initline] = qbitsstate[finalbaseind];
     }
     
@@ -122,7 +172,7 @@ __global__ void executeGroupKernelSharedState(int nqbits, Complex<T>* qbitsstate
         for (int i = 0; i < groupnqbits; i++){
             finalbaseind += ((line >> i)%2) << groupqbits[i];
         }
-
+        
         qbitsstateshared[line] = qbitsstate[finalbaseind];
         //printf("value at line: %i is %f with finalbaseind : %i\n", line, qbitsstateshared[line].a, (int)finalbaseind);
     }
@@ -132,6 +182,7 @@ __global__ void executeGroupKernelSharedState(int nqbits, Complex<T>* qbitsstate
     for (int gateid = 0; gateid < gatenumber; gateid++){
         gates[gateid].compute(groupnqbits, qbitsstateshared, bit_to_groupbitnumber, matrixsharedstorage, sharedMemMatrixSize);
         __syncthreads();
+         
     }
 
     if (work_per_thread0 == 0 && threadIdx.x < (1llu << groupnqbits)){
@@ -147,7 +198,6 @@ __global__ void executeGroupKernelSharedState(int nqbits, Complex<T>* qbitsstate
         for (int i = 0; i < groupnqbits; i++){
             finalbaseind += ((line >> i)%2) << groupqbits[i];
         }
-
         qbitsstate[finalbaseind] = qbitsstateshared[line];
     }
 
@@ -213,7 +263,7 @@ public:
             hipDeviceSynchronize();
         }
     }
-    void execute(bool displaytime = false){// initialization and end will take care of repermuting good values
+    proba_state execute(bool displaytime = false){// initialization and end will take care of repermuting good values
         auto t1 = high_resolution_clock::now();
         initialize();
         auto t2 = high_resolution_clock::now();
@@ -228,19 +278,48 @@ public:
             }
         }
         auto t3 = high_resolution_clock::now();
+        auto res = measurement();
+        auto t4 = high_resolution_clock::now();
+
+        duration<double, std::milli> ms_double_init = t2 - t1;
+        duration<double, std::milli> ms_double_compute = t3 - t2;
+        duration<double, std::milli> ms_double_end = t4 - t3;
 
         if (displaytime){
-            duration<double, std::milli> ms_double_init = t2 - t1;
-            duration<double, std::milli> ms_double_compute = t3 - t2;
-            
             cout << "Initialization time : " << ms_double_init.count() << " ms" << endl;
             cout << "Computation time : " << ms_double_compute.count() << " ms" << endl;
+            cout << "measurement time : " << ms_double_end.count() << " ms" << endl;
         }
+        return res;
+    }
+    proba_state execute(proba_state& in, bool displaytime = false){// initialization and end will take care of repermuting good values
+        auto t1 = high_resolution_clock::now();
+        initialize(in);
+        auto t2 = high_resolution_clock::now();
 
-        Complex<T> res0;
-        hipMemcpyDtoH((&res0), (hipDeviceptr_t)gpu_qbits_states[0], sizeof(Complex<T>));
-        res0.print();
-        cout << endl;
+        int groupid = 0;
+        for (const auto& instr: instructions){
+            if (instr.first == 0){
+                swapCommand(instr.second);
+            } else if (instr.first == 1){
+                executeCommand(groupid);
+                groupid++;
+            }
+        }
+        auto t3 = high_resolution_clock::now();
+        auto res = measurement();
+        auto t4 = high_resolution_clock::now();
+
+        duration<double, std::milli> ms_double_init = t2 - t1;
+        duration<double, std::milli> ms_double_compute = t3 - t2;
+        duration<double, std::milli> ms_double_end = t4 - t3;
+
+        if (displaytime){
+            cout << "Initialization time : " << ms_double_init.count() << " ms" << endl;
+            cout << "Computation time : " << ms_double_compute.count() << " ms" << endl;
+            cout << "measurement time : " << ms_double_end.count() << " ms" << endl;
+        }
+        return res;
     }
     ~Simulator(){
         for (int i = 0; i < number_of_gpu; i++){
@@ -277,6 +356,106 @@ private:
             hipDeviceSynchronize();
         }
     }
+    void initialize(proba_state& state_input){
+        //kernel int nqbits, Complex<T>* memory, Complex<T>* qbitsangles, Complex<T> offset
+        if (state_input.val.size() != nqbits){
+            cout << "wrong input proba_state_size_input, defaulting to no input" << endl;
+            initialize();
+            return;
+        }
+        vector<Complex<T>> allstates(2*nqbits);
+        vector<Complex<T>> gpustates(2*(nqbits-number_of_gpu_log2));
+        for (int i = 0; i < nqbits; i++){
+            Complex<T> val0, val1;
+            val0 = Complex<T>(cos((state_input.val[i].first)*PI/2), 0);
+            val1 = Complex<T>(cos((state_input.val[i].second)), sin((state_input.val[i].second)))*sin((state_input.val[i].first)*PI/2);
+            allstates[initial_permutation[i]] = val0;
+            allstates[initial_permutation[i] + nqbits] = val1;
+        }
+        for (int i = 0; i < nqbits - number_of_gpu_log2; i++){
+            gpustates[i] = allstates[i];
+            gpustates[i+nqbits-number_of_gpu_log2] = allstates[i+nqbits];
+        }
+        Complex<T>** anglesinter_d = (Complex<T>**)malloc(sizeof(Complex<T>*)*number_of_gpu);
+        Complex<T> offset;
+        for (int i = 0; i < number_of_gpu; i++){
+            hipSetDevice(i);
+            hipMalloc(anglesinter_d+i, sizeof(Complex<T>)*2*(nqbits - number_of_gpu_log2));
+            hipMemcpyHtoDAsync((hipDeviceptr_t)anglesinter_d[i], gpustates.data(), sizeof(Complex<T>)*2*(nqbits - number_of_gpu_log2), 0);
+            int threadnumber = min(1024llu, (1llu << (nqbits - number_of_gpu_log2)));
+            int blocknumber = min((1llu << 20), (1llu << (nqbits - number_of_gpu_log2))/threadnumber);
+            offset = Complex<T>(1, 0);
+            for (int j = 0; j < number_of_gpu_log2; j++){
+                offset = offset * (allstates[((i >> j)%2)*nqbits + j + nqbits-number_of_gpu_log2]);
+            }
+            initialize_probastate<<<dim3(blocknumber), dim3(threadnumber), 0, 0>>>(nqbits-number_of_gpu_log2, gpu_qbits_states[i], anglesinter_d[i], offset);
+        }
+        for (int i = 0; i < number_of_gpu; i++){
+            hipSetDevice(i);
+            hipDeviceSynchronize();
+            hipFree(anglesinter_d[i]);   
+        }
+    }
+    proba_state measurement(){
+        int threadnumber = min(1024llu, (1llu << (nqbits - number_of_gpu_log2)));
+        int blocknumber = min((1llu << 5), (1llu << (nqbits - number_of_gpu_log2))/threadnumber);
+        Complex<T>** measureintermediate_d = (Complex<T>**)malloc(sizeof(Complex<T>*)*number_of_gpu);
+        Complex<T>* measureintermediate = (Complex<T>*)malloc(sizeof(Complex<T>)*2*(nqbits-number_of_gpu_log2)*threadnumber*blocknumber*number_of_gpu);
+        Complex<T>* measure = (Complex<T>*)malloc(sizeof(Complex<T>)*2*nqbits);
+        Complex<T> temp;
+        
+        for (int i = 0; i < number_of_gpu; i++){
+            hipSetDevice(i);
+            hipMalloc(measureintermediate_d+i, sizeof(Complex<T>)*(threadnumber*blocknumber*2*(nqbits-number_of_gpu_log2)));
+            measureKernel<<<dim3(blocknumber), dim3(threadnumber), 0, 0>>>((nqbits-number_of_gpu_log2), gpu_qbits_states[i], measureintermediate_d[i]);
+            hipMemcpyDtoHAsync(measureintermediate+(2*(nqbits-number_of_gpu_log2)*threadnumber*blocknumber*i), (hipDeviceptr_t)measureintermediate_d[i], sizeof(Complex<T>)*2*(nqbits-number_of_gpu_log2)*threadnumber*blocknumber, 0);
+        }
+
+        for (int i = 0; i < 2*nqbits; i++){
+            measure[i] = 0;
+        }
+
+        for (int i = 0; i < number_of_gpu; i++){
+            temp = 0;
+            hipSetDevice(i);
+            hipDeviceSynchronize();
+            hipFree(measureintermediate_d+i);
+            for (int j = 0; j < threadnumber*blocknumber; j++){
+                for (int k = 0; k < 2*(nqbits-number_of_gpu_log2); k++){
+                    measure[(k < nqbits - number_of_gpu_log2)?k:k+number_of_gpu_log2] += measureintermediate[i*threadnumber*blocknumber*2*(nqbits-number_of_gpu_log2) + j*2*(nqbits-number_of_gpu_log2) + k];
+                    temp += measureintermediate[i*threadnumber*blocknumber*2*(nqbits-number_of_gpu_log2) + j*2*(nqbits-number_of_gpu_log2) + k];
+                }
+            }
+            for (int j = 0; j < number_of_gpu_log2; j++){
+                measure[((i >> j)%2)*nqbits + j+(nqbits - number_of_gpu_log2)] += temp;
+            }
+        }
+
+        //now we just need to get the spin
+        vector<pair<double,  double>> res(nqbits);
+        for (int i = 0; i < nqbits; i++){
+            Complex<T> val0 = measure[i];
+            Complex<T> val1 = measure[nqbits+i];
+            double teta, phi;
+            if (val0.norm() < 0.0000000000001){
+                teta = 1;
+                phi = 0;
+            } else if (val1.norm() < 0.00000000000001) {
+                teta = 0;
+                phi = 0;
+            } else {
+                teta = atan((val1.norm())/(val0.norm()))/(PI/2);
+                phi = (val1/val0).angle();
+            }
+            res[final_inverse_permutation[i]] = make_pair(teta, phi);
+        }
+
+        free(measureintermediate);
+        free(measureintermediate_d);
+        free(measure);
+
+        return proba_state(res);
+    }
     void swapqbitDirectAccess(int q1, int q2){ //q1 local, q2 global (local/local is a swap gate, global/global is a gpu permutation but useless here)
         q2 -= nqbits - number_of_gpu_log2;
         size_t mask = (1llu << q2) - 1;
@@ -304,6 +483,7 @@ private:
         size_t chunk_size = min((1llu << swapBufferSizeLog2), data_to_transfer);
         size_t mask = (1llu << q2) - 1;
         size_t mask2 = (1llu << (number_of_gpu_log2 - 1)) - 1 - mask;
+
         for (size_t current = 0; current < data_to_transfer; current += chunk_size){
             for (int i = 0; i < number_of_gpu/2; i++){
                 //swapBuffer1 will be for sending and 2 for receiving
@@ -315,7 +495,7 @@ private:
                 int work_per_thread = max(1llu, chunk_size/threadnumber/blocknumber);
                 hipSetDevice(baseIndex);
                 swapqbitKernelIndirectAccessEXTRACT<<<dim3(blocknumber), dim3(threadnumber), 0, 0>>>((nqbits - number_of_gpu_log2), q1, 1llu, gpu_qbits_states[baseIndex], swapBuffer1[baseIndex], current, work_per_thread);
-                hipMemcpyPeerAsync(swapBuffer2[otherIndex], otherIndex, swapBuffer1[baseIndex], baseIndex, sizeof(Complex<T>)*chunk_size, 0);
+                hipMemcpyPeer(swapBuffer2[otherIndex], otherIndex, swapBuffer1[baseIndex], baseIndex, sizeof(Complex<T>)*chunk_size);
                 hipSetDevice(otherIndex);
                 swapqbitKernelIndirectAccessEXTRACT<<<dim3(blocknumber), dim3(threadnumber), 0, 0>>>((nqbits - number_of_gpu_log2), q1, 0, gpu_qbits_states[otherIndex], swapBuffer1[otherIndex], current, work_per_thread);
                 hipMemcpyPeerAsync(swapBuffer2[baseIndex], baseIndex, swapBuffer1[otherIndex], otherIndex, sizeof(Complex<T>)*chunk_size, 0);
