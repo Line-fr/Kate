@@ -17,6 +17,13 @@
 #define CRk 4
 #define TOFFOLI 5
 
+#define GPU_CHECK(x)\
+err = (x);\
+if (err != hipSuccess)\
+{\
+   	cout << hipGetErrorString(x) << " in " << __FILE__ << " at line " << __LINE__ << endl;\
+}
+
 using std::chrono::high_resolution_clock;
 using std::chrono::duration_cast;
 using std::chrono::duration;
@@ -72,11 +79,29 @@ public:
         if (identifier == 5 && qbits.size() != 3){
             cout << "toffoli is on exactly 3 qbits" << endl;
         }
+        //checking that everyone in qbit is unique
+        for (int i = 0; i < qbits.size(); i++){
+            for (int j = i+1; j < qbits.size(); j++){
+                if (qbits[i] == qbits[j]){
+                    cout << "Error while creating a gate: a qbit is present twice: " << qbits[i] << endl;
+                    return;
+                }
+            }
+        }
         this->qbits = qbits;
     }
     Gate(Matrix<Complex<T>>& densecontent, vector<int>& qbits){
         identifier = 0;
         this->densecontent = densecontent;
+        //checking that everyone in qbit is unique
+        for (int i = 0; i < qbits.size(); i++){
+            for (int j = i+1; j < qbits.size(); j++){
+                if (qbits[i] == qbits[j]){
+                    cout << "Error while creating a gate: a qbit is present twice: " << qbits[i] << endl;
+                    return;
+                }
+            }
+        }
         this->qbits = qbits;
         if ((1llu << qbits.size()) != densecontent.n){
             cout << "size mismatch dense matrix dimension error" << endl;
@@ -85,6 +110,15 @@ public:
     Gate(int identifier, Matrix<Complex<T>>& densecontent, vector<int>& qbits){
         this->identifier = identifier;
         this->densecontent = densecontent;
+        //checking that everyone in qbit is unique
+        for (int i = 0; i < qbits.size(); i++){
+            for (int j = i+1; j < qbits.size(); j++){
+                if (qbits[i] == qbits[j]){
+                    cout << "Error while creating a gate: a qbit is present twice: " << qbits[i] << endl;
+                    return;
+                }
+            }
+        }
         this->qbits = qbits;
         if ((1llu << qbits.size()) != densecontent.n){
             cout << "size mismatch dense matrix dimension error" << endl;
@@ -95,7 +129,7 @@ public:
         densecontent = Matrix<Complex<T>>(other.densecontent);
         qbits.clear();
         int* temp = (int*)malloc(sizeof(int)*other.nbqbits);
-        hipMemcpyDtoH(temp, (hipDeviceptr_t)other.qbits, sizeof(int)*other.nbqbits);
+        GPU_CHECK(hipMemcpyDtoH(temp, (hipDeviceptr_t)other.qbits, sizeof(int)*other.nbqbits));
         for (int i = 0; i < other.nbqbits; i++){
             qbits.push_back(temp[i]);
         }
@@ -312,21 +346,21 @@ GPUGate<T> createGPUGate(const Gate<T>& other){
     res.optarg = other.optarg;
     res.densecontent = createGPUMatrix<Complex<T>>(other.densecontent);
     res.nbqbits = other.qbits.size();
-    hipMalloc(&res.qbits, sizeof(int)*res.nbqbits);
-    hipMalloc(&res.ordered_qbits, sizeof(int)*res.nbqbits);
+    GPU_CHECK(hipMalloc(&res.qbits, sizeof(int)*res.nbqbits));
+    GPU_CHECK(hipMalloc(&res.ordered_qbits, sizeof(int)*res.nbqbits));
     int i = 0;
     int* temp = (int*)malloc(sizeof(int)*res.nbqbits);
     for (const auto& el: other.qbits){
         temp[i] = el;
         i++;
     }
-    hipMemcpyHtoD((hipDeviceptr_t)res.qbits, temp, sizeof(int)*res.nbqbits);
+    GPU_CHECK(hipMemcpyHtoD((hipDeviceptr_t)res.qbits, temp, sizeof(int)*res.nbqbits));
     i = 0;
     for (const auto& el: set<int>(other.qbits.begin(), other.qbits.end())){
         temp[i] = el;
         i++;
     }
-    hipMemcpyHtoD((hipDeviceptr_t)res.ordered_qbits, temp, sizeof(int)*res.nbqbits);
+    GPU_CHECK(hipMemcpyHtoD((hipDeviceptr_t)res.ordered_qbits, temp, sizeof(int)*res.nbqbits));
     free(temp);
     return res;
 }
@@ -342,22 +376,22 @@ GPUGate<T> createGPUGateAsync(const Gate<T>& other){
     res.optarg = other.optarg;
     res.densecontent = createGPUMatrixAsync<Complex<T>>(other.densecontent);
     res.nbqbits = other.qbits.size();
-    hipMalloc(&res.qbits, sizeof(int)*res.nbqbits);
-    hipMalloc(&res.ordered_qbits, sizeof(int)*res.nbqbits);
+    GPU_CHECK(hipMalloc(&res.qbits, sizeof(int)*res.nbqbits));
+    GPU_CHECK(hipMalloc(&res.ordered_qbits, sizeof(int)*res.nbqbits));
     int i = 0;
     int* temp = (int*)malloc(sizeof(int)*res.nbqbits);
     for (const auto& el: other.qbits){
         temp[i] = el;
         i++;
     }
-    hipMemcpyHtoDAsync((hipDeviceptr_t)res.qbits, temp, sizeof(int)*res.nbqbits, 0);
+    GPU_CHECK(hipMemcpyHtoDAsync((hipDeviceptr_t)res.qbits, temp, sizeof(int)*res.nbqbits, 0));
     i = 0;
     for (const auto& el: set<int>(other.qbits.begin(), other.qbits.end())){
         temp[i] = el;
         i++;
     }
-    hipMemcpyHtoDAsync((hipDeviceptr_t)res.ordered_qbits, temp, sizeof(int)*res.nbqbits, 0);
-    hipStreamAddCallback(0, freecallback, temp, 0);
+    GPU_CHECK(hipMemcpyHtoDAsync((hipDeviceptr_t)res.ordered_qbits, temp, sizeof(int)*res.nbqbits, 0));
+    GPU_CHECK(hipStreamAddCallback(0, freecallback, temp, 0));
     return res;
 }
 
@@ -368,29 +402,29 @@ GPUGate<T> createGPUGate(int n, vector<int> qbits){
     res.optarg = 0;
     res.densecontent = createGPUMatrix<Complex<T>>((1llu << n));
     res.nbqbits = qbits.size();
-    hipMalloc(&res.qbits, sizeof(int)*res.nbqbits);
-    hipMalloc(&res.ordered_qbits, sizeof(int)*res.nbqbits);
+    GPU_CHECK(hipMalloc(&res.qbits, sizeof(int)*res.nbqbits));
+    GPU_CHECK(hipMalloc(&res.ordered_qbits, sizeof(int)*res.nbqbits));
     int i = 0;
     int* temp = (int*)malloc(sizeof(int)*res.nbqbits);
     for (const auto& el: qbits){
         temp[i] = el;
         i++;
     }
-    hipMemcpyHtoD((hipDeviceptr_t)res.qbits, temp, sizeof(int)*res.nbqbits);
+    GPU_CHECK(hipMemcpyHtoD((hipDeviceptr_t)res.qbits, temp, sizeof(int)*res.nbqbits));
     i = 0;
     for (const auto& el: set<int>(qbits.begin(), qbits.end())){
         temp[i] = el;
         i++;
     }
-    hipMemcpyHtoD((hipDeviceptr_t)res.ordered_qbits, temp, sizeof(int)*res.nbqbits);
+    GPU_CHECK(hipMemcpyHtoD((hipDeviceptr_t)res.ordered_qbits, temp, sizeof(int)*res.nbqbits));
     free(temp);
     return res;
 }
 
 template<typename T>
 void destroyGPUGate(const GPUGate<T>& el){
-    hipFree(el.qbits);
-    hipFree(el.ordered_qbits);
+    GPU_CHECK(hipFree(el.qbits));
+    GPU_CHECK(hipFree(el.ordered_qbits));
     destroyGPUMatrix(el.densecontent);
 }
 
@@ -410,12 +444,12 @@ GPUQuantumCircuit<T> createGPUQuantumCircuit(const QuantumCircuit<T>& el){
     GPUQuantumCircuit<T> res;
     res.gate_number = el.gate_set_ordered.size();
     res.nqbits = el.nqbits;
-    hipMalloc(&res.gates, sizeof(GPUGate<T>)*res.gate_number);
+    GPU_CHECK(hipMalloc(&res.gates, sizeof(GPUGate<T>)*res.gate_number));
     GPUGate<T>* temp = (GPUGate<T>*)malloc(sizeof(GPUGate<T>)*res.gate_number);
     for (int i = 0; i < res.gate_number; i++){
         temp[i] = createGPUGate<T>(el.gate_set_ordered[i]);
     }
-    hipMemcpyHtoD((hipDeviceptr_t)res.gates, temp, sizeof(GPUGate<T>)*res.gate_number);
+    GPU_CHECK(hipMemcpyHtoD((hipDeviceptr_t)res.gates, temp, sizeof(GPUGate<T>)*res.gate_number));
     free(temp);
     return res;
 }
@@ -425,22 +459,22 @@ GPUQuantumCircuit<T> createGPUQuantumCircuitAsync(const QuantumCircuit<T>& el){
     GPUQuantumCircuit<T> res;
     res.gate_number = el.gate_set_ordered.size();
     res.nqbits = el.nqbits;
-    hipMalloc(&res.gates, sizeof(GPUGate<T>)*res.gate_number);
+    GPU_CHECK(hipMalloc(&res.gates, sizeof(GPUGate<T>)*res.gate_number));
     GPUGate<T>* temp = (GPUGate<T>*)malloc(sizeof(GPUGate<T>)*res.gate_number);
     for (int i = 0; i < res.gate_number; i++){
         temp[i] = createGPUGateAsync<T>(el.gate_set_ordered[i]);
 
     }
-    hipMemcpyHtoDAsync((hipDeviceptr_t)res.gates, temp, sizeof(GPUGate<T>)*res.gate_number, 0);
-    hipStreamAddCallback(0, freecallback, temp, 0);
+    GPU_CHECK(hipMemcpyHtoDAsync((hipDeviceptr_t)res.gates, temp, sizeof(GPUGate<T>)*res.gate_number, 0));
+    GPU_CHECK(hipStreamAddCallback(0, freecallback, temp, 0));
     return res;
 }
 
 template<typename T>
 void destroyGPUQuantumCircuit(const GPUQuantumCircuit<T>& el){
     GPUGate<T>* temp = (GPUGate<T>*)malloc(sizeof(GPUGate<T>)*el.gate_number);
-    hipMemcpyDtoH(temp, (hipDeviceptr_t)el.gates, sizeof(GPUGate<T>)*el.gate_number);
-    hipFree(el.gates);
+    GPU_CHECK(hipMemcpyDtoH(temp, (hipDeviceptr_t)el.gates, sizeof(GPUGate<T>)*el.gate_number));
+    GPU_CHECK(hipFree(el.gates));
     for (int i = 0; i < el.gate_number; i++){
         destroyGPUGate<T>(temp[i]);
     }
@@ -501,8 +535,8 @@ __host__ Gate<T> mergedGateMadness(vector<Gate<T>> to_merge, hipStream_t stream 
         c_coveredqbits_ordered[i] = el;
         i++;
     }
-    hipMalloc(&coveredqbits_ordered, sizeof(int)*total_covered.size());
-    hipMemcpyHtoD((hipDeviceptr_t)coveredqbits_ordered, c_coveredqbits_ordered, sizeof(int)*total_covered.size());
+    GPU_CHECK(hipMalloc(&coveredqbits_ordered, sizeof(int)*total_covered.size()));
+    GPU_CHECK(hipMemcpyHtoD((hipDeviceptr_t)coveredqbits_ordered, c_coveredqbits_ordered, sizeof(int)*total_covered.size()));
     /*
     //let's build permutation table
     vector<int> permuttable(maxseen+1);
@@ -526,8 +560,8 @@ __host__ Gate<T> mergedGateMadness(vector<Gate<T>> to_merge, hipStream_t stream 
     GPUGate<T> resGPU = createGPUGate<T>(total_covered.size(), vector<int>(total_covered.begin(), total_covered.end())); //the kernel will fill the matrix and these informations will be correct
     hipDeviceProp_t devattr;
     int device;
-    hipGetDevice(&device);
-	hipGetDeviceProperties(&devattr, device);
+    GPU_CHECK(hipGetDevice(&device));
+	GPU_CHECK(hipGetDeviceProperties(&devattr, device));
     size_t totalshared_block = devattr.sharedMemPerBlock;
     //only 1 gpu for now. If gpucircuit has less than 5 qbits, we are sad but it should work?
     //ideally, we should do it on CPU when nqbits < 8
@@ -535,7 +569,7 @@ __host__ Gate<T> mergedGateMadness(vector<Gate<T>> to_merge, hipStream_t stream 
     Gate<T> res(resGPU);
     destroyGPUGate(resGPU);
     destroyGPUQuantumCircuit(gpucircuit);
-    hipFree(coveredqbits_ordered);
+    GPU_CHECK(hipFree(coveredqbits_ordered));
     free(c_coveredqbits_ordered);
     return res;
 }
@@ -557,6 +591,13 @@ public:
         gate_set_ordered = gate_set;
     }
     void appendGate(const Gate<T>& gate){
+        //checking qbits
+        for (const auto& el: gate.qbits){
+            if (el >= nqbits){
+                cout << "the gate you are trying to add contains a qbit not in the circuit: " << el << "/" << nqbits << "!" << endl;
+                return;
+            }
+        }
         if (groups.size() != 0) {
             cout << "you should not be adding gate after gateGrouping or allocate, this will not work" << endl;
         }
@@ -575,6 +616,10 @@ public:
             }
             for (auto& el: gate_set_ordered){
                 if (groups.size() != 0){
+                    if (group >= groups.size()){
+                        cout << "ERROR while printing the circuit, group vector is bad" << endl;
+                        return;
+                    }
                     if (groups[group].first == i) {
                         group++;
                         cout << "Group " << group << " with qbits ";
@@ -595,6 +640,10 @@ public:
             vector<int> permutation = initial_permutation;
             vector<int> inversepermutation(nqbits);
             for (int m = 0; m < nqbits; m++){
+                if (permutation[m] >= nqbits){
+                    cout << "Error while printing: initial permutation work on more qbits than the number in the circuit!" << endl;
+                    return;
+                }
                 inversepermutation[permutation[m]] = m;
             }
 
@@ -605,7 +654,7 @@ public:
                     cout << "SWAP ";
                     for (int m = 0; m < instruction.second.size()/2; m++){
                         cout << instruction.second[2*m] << " and " << instruction.second[2*m+1] << ", ";
-                        
+
                         swap(inversepermutation[instruction.second[2*m]], inversepermutation[instruction.second[2*m+1]]);
                         swap(permutation[inversepermutation[instruction.second[2*m]]], permutation[inversepermutation[instruction.second[2*m+1]]]);
                     }
@@ -644,6 +693,7 @@ public:
     }
     void gateScheduling(){ //OPTIMISATION STEP 1 (non optimal)
         //this step is made to help the other optimisations do their jobs better by regrouping matrices on similar qbits
+        if (gate_set_ordered.size() == 0) return;
         vector<vector<int>> dependencyGraph(gate_set_ordered.size());
         vector<vector<int>> dependencyGraphReversed(gate_set_ordered.size());
         Graph dependencyGraphMat(gate_set_ordered.size());

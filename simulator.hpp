@@ -6,6 +6,13 @@
 #define USE_PEER_NON_UNIFIED 1
 #include<hip/hip_runtime.h>
 
+#define GPU_CHECK(x)\
+err = (x);\
+if (err != hipSuccess)\
+{\
+   	cout << hipGetErrorString(x) << " in " << __FILE__ << " at line " << __LINE__ << endl;\
+}
+
 using std::chrono::high_resolution_clock;
 using std::chrono::duration_cast;
 using std::chrono::duration;
@@ -286,19 +293,19 @@ public:
         gpuc = (GPUQuantumCircuit<T>*)malloc(sizeof(GPUQuantumCircuit<T>)*number_of_gpu);
         for (int i = 0; i < number_of_gpu; i++){
             if (number_of_gpu > 1) cswapBuffer[i] = (Complex<T>*)malloc(sizeof(Complex<T>)*(1llu << swapBufferSizeLog2));
-            hipSetDevice(i);
-            hipMalloc(gpu_qbits_states+i, sizeof(Complex<T>)*(1llu << (nqbits - number_of_gpu_log2)));
-            if (number_of_gpu > 1) hipMalloc(swapBuffer1+i, sizeof(Complex<T>)*(1llu << swapBufferSizeLog2));
-            if (number_of_gpu > 1) hipMalloc(swapBuffer2+i, sizeof(Complex<T>)*(1llu << swapBufferSizeLog2));
+            GPU_CHECK(hipSetDevice(i));
+            GPU_CHECK(hipMalloc(gpu_qbits_states+i, sizeof(Complex<T>)*(1llu << (nqbits - number_of_gpu_log2))));
+            if (number_of_gpu > 1) {GPU_CHECK(hipMalloc(swapBuffer1+i, sizeof(Complex<T>)*(1llu << swapBufferSizeLog2)))};
+            if (number_of_gpu > 1) {GPU_CHECK(hipMalloc(swapBuffer2+i, sizeof(Complex<T>)*(1llu << swapBufferSizeLog2)))};
             gpuc[i] = createGPUQuantumCircuitAsync(mycircuit);
             //enabling direct inter device kernel communications
             for (int j = 0; j < number_of_gpu; j++){
                 if (i == j) continue;
-                hipDeviceEnablePeerAccess(j, 0);
+                GPU_CHECK(hipDeviceEnablePeerAccess(j, 0));
             }
         }
         for (int i = 0; i < number_of_gpu; i++){
-            hipDeviceSynchronize();
+            GPU_CHECK(hipDeviceSynchronize());
         }
     }
     proba_state execute(bool displaytime = false){// initialization and end will take care of repermuting good values
@@ -362,11 +369,11 @@ public:
     ~Simulator(){
         for (int i = 0; i < number_of_gpu; i++){
             if (number_of_gpu > 1) free(cswapBuffer[i]);
-            hipSetDevice(i);
-            hipFree(gpu_qbits_states[i]);
+            GPU_CHECK(hipSetDevice(i));
+            GPU_CHECK(hipFree(gpu_qbits_states[i]));
             if (number_of_gpu > 1){
-                hipFree(swapBuffer1[i]);
-                hipFree(swapBuffer2[i]);
+                GPU_CHECK(hipFree(swapBuffer1[i]));
+                GPU_CHECK(hipFree(swapBuffer2[i]));
             }
             destroyGPUQuantumCircuit(gpuc[i]);
         }
@@ -380,7 +387,7 @@ private:
     void initialize(){
         size_t indexfor1 = 0; //start at all 0 state. This value works no matter the permutation. But should only be put on gpu 0;
         for (int i = 0; i < number_of_gpu; i++){
-            hipSetDevice(i);
+            GPU_CHECK(hipSetDevice(i));
             int threadnumber = min(1024llu, (1llu << (nqbits - number_of_gpu_log2)));
             int blocknumber = min((1llu << 20), (1llu << (nqbits - number_of_gpu_log2))/threadnumber);
             if (i == 0){
@@ -390,8 +397,8 @@ private:
             }
         }
         for (int i = 0; i < number_of_gpu; i++){
-            hipSetDevice(i);
-            hipDeviceSynchronize();
+            GPU_CHECK(hipSetDevice(i));
+            GPU_CHECK(hipDeviceSynchronize());
         }
     }
     void initialize(proba_state& state_input){
@@ -417,9 +424,9 @@ private:
         Complex<T>** anglesinter_d = (Complex<T>**)malloc(sizeof(Complex<T>*)*number_of_gpu);
         Complex<T> offset;
         for (int i = 0; i < number_of_gpu; i++){
-            hipSetDevice(i);
-            hipMalloc(anglesinter_d+i, sizeof(Complex<T>)*2*(nqbits - number_of_gpu_log2));
-            hipMemcpyHtoDAsync((hipDeviceptr_t)anglesinter_d[i], gpustates.data(), sizeof(Complex<T>)*2*(nqbits - number_of_gpu_log2), 0);
+            GPU_CHECK(hipSetDevice(i));
+            GPU_CHECK(hipMalloc(anglesinter_d+i, sizeof(Complex<T>)*2*(nqbits - number_of_gpu_log2)));
+            GPU_CHECK(hipMemcpyHtoDAsync((hipDeviceptr_t)anglesinter_d[i], gpustates.data(), sizeof(Complex<T>)*2*(nqbits - number_of_gpu_log2), 0));
             int threadnumber = min(1024llu, (1llu << (nqbits - number_of_gpu_log2)));
             int blocknumber = min((1llu << 20), (1llu << (nqbits - number_of_gpu_log2))/threadnumber);
             offset = Complex<T>(1, 0);
@@ -429,9 +436,9 @@ private:
             initialize_probastate<<<dim3(blocknumber), dim3(threadnumber), 0, 0>>>(nqbits-number_of_gpu_log2, gpu_qbits_states[i], anglesinter_d[i], offset);
         }
         for (int i = 0; i < number_of_gpu; i++){
-            hipSetDevice(i);
-            hipDeviceSynchronize();
-            hipFree(anglesinter_d[i]);   
+            GPU_CHECK(hipSetDevice(i));
+            GPU_CHECK(hipDeviceSynchronize());
+            GPU_CHECK(hipFree(anglesinter_d[i]));   
         }
     }
     proba_state measurement(){
@@ -443,10 +450,10 @@ private:
         Complex<T> temp;
         
         for (int i = 0; i < number_of_gpu; i++){
-            hipSetDevice(i);
-            hipMalloc(measureintermediate_d+i, sizeof(Complex<T>)*(threadnumber*blocknumber*2*(nqbits-number_of_gpu_log2)));
+            GPU_CHECK(hipSetDevice(i));
+            GPU_CHECK(hipMalloc(measureintermediate_d+i, sizeof(Complex<T>)*(threadnumber*blocknumber*2*(nqbits-number_of_gpu_log2))));
             measureKernel<<<dim3(blocknumber), dim3(threadnumber), 0, 0>>>((nqbits-number_of_gpu_log2), gpu_qbits_states[i], measureintermediate_d[i]);
-            hipMemcpyDtoHAsync(measureintermediate+(2*(nqbits-number_of_gpu_log2)*threadnumber*blocknumber*i), (hipDeviceptr_t)measureintermediate_d[i], sizeof(Complex<T>)*2*(nqbits-number_of_gpu_log2)*threadnumber*blocknumber, 0);
+            GPU_CHECK(hipMemcpyDtoHAsync(measureintermediate+(2*(nqbits-number_of_gpu_log2)*threadnumber*blocknumber*i), (hipDeviceptr_t)measureintermediate_d[i], sizeof(Complex<T>)*2*(nqbits-number_of_gpu_log2)*threadnumber*blocknumber, 0));
         }
 
         for (int i = 0; i < 2*nqbits; i++){
@@ -455,9 +462,9 @@ private:
 
         for (int i = 0; i < number_of_gpu; i++){
             temp = 0;
-            hipSetDevice(i);
-            hipDeviceSynchronize();
-            hipFree(measureintermediate_d[i]);
+            GPU_CHECK(hipSetDevice(i));
+            GPU_CHECK(hipDeviceSynchronize());
+            GPU_CHECK(hipFree(measureintermediate_d[i]));
             for (int j = 0; j < threadnumber*blocknumber; j++){
                 for (int k = 0; k < 2*(nqbits-number_of_gpu_log2); k++){
                     measure[k] += measureintermediate[i*threadnumber*blocknumber*2*(nqbits-number_of_gpu_log2) + j*2*(nqbits-number_of_gpu_log2) + k];
@@ -522,14 +529,14 @@ private:
 
 
         //parallel load from gpu and compute on cpu
-        hipSetDevice(0);
-        hipMemcpyDtoH(buffer1, (hipDeviceptr_t)gpu_qbits_states[0], sizeof(Complex<T>)*(1llu << localqbits));
+        GPU_CHECK(hipSetDevice(0));
+        GPU_CHECK(hipMemcpyDtoH(buffer1, (hipDeviceptr_t)gpu_qbits_states[0], sizeof(Complex<T>)*(1llu << localqbits)));
 
         for (int i = 0; i < number_of_gpu; i++){
             threads.clear();
             if (i+1 < number_of_gpu){
-                hipSetDevice(i+1);
-                hipMemcpyDtoHAsync(buffer2, (hipDeviceptr_t)gpu_qbits_states[i+1], sizeof(Complex<T>)*(1llu << localqbits), 0);
+                GPU_CHECK(hipSetDevice(i+1));
+                GPU_CHECK(hipMemcpyDtoHAsync(buffer2, (hipDeviceptr_t)gpu_qbits_states[i+1], sizeof(Complex<T>)*(1llu << localqbits), 0));
             }
             //let's compute for buffer 1
             size_t work_per_thread = ((1llu << localqbits)/usable_threads);
@@ -552,7 +559,7 @@ private:
                 measure[((i >> j)%2) + 2*(j+localqbits)] += temp;
             }
 
-            if (i+1 < number_of_gpu) hipDeviceSynchronize();
+            if (i+1 < number_of_gpu) {GPU_CHECK(hipDeviceSynchronize())};
 
             swap(buffer1, buffer2);
         }
@@ -602,13 +609,13 @@ private:
             int blocknumber = min((1llu << 20), (1llu << (nqbits - number_of_gpu_log2))/threadnumber);
             int work_per_thread = max(1llu, (1llu << (nqbits - number_of_gpu_log2))/threadnumber/blocknumber);
             if (blocknumber == 1) {threadnumber /= 2;} else {blocknumber /= 2;}
-            hipSetDevice(baseIndex);
+            GPU_CHECK(hipSetDevice(baseIndex));
             swapqbitKernelDirectAcess<<<dim3(blocknumber), dim3(threadnumber), 0, 0>>>((nqbits - number_of_gpu_log2), q1, gpu_qbits_states[baseIndex], gpu_qbits_states[otherIndex], 0, work_per_thread);
-            hipSetDevice(otherIndex);
+            GPU_CHECK(hipSetDevice(otherIndex));
             swapqbitKernelDirectAcess<<<dim3(blocknumber), dim3(threadnumber), 0, 0>>>((nqbits - number_of_gpu_log2), q1, gpu_qbits_states[baseIndex], gpu_qbits_states[otherIndex], (1llu << (nqbits - number_of_gpu_log2))/work_per_thread/2, work_per_thread);
         }
         for (int i = 0; i < number_of_gpu; i++){
-            hipDeviceSynchronize();
+            GPU_CHECK(hipDeviceSynchronize());
         }
     }
     void swapqbitBufferSwap(int q1, int q2){
@@ -627,15 +634,15 @@ private:
                 int threadnumber = min(1024llu, (chunk_size));
                 int blocknumber = min((1llu << 12), (chunk_size)/threadnumber);
                 int work_per_thread = max(1llu, chunk_size/threadnumber/blocknumber);
-                hipSetDevice(baseIndex);
+                GPU_CHECK(hipSetDevice(baseIndex));
                 swapqbitKernelIndirectAccessEXTRACT<<<dim3(blocknumber), dim3(threadnumber), 0, 0>>>((nqbits - number_of_gpu_log2), q1, 1llu, gpu_qbits_states[baseIndex], swapBuffer1[baseIndex], current, work_per_thread);
-                hipMemcpyPeer(swapBuffer2[otherIndex], otherIndex, swapBuffer1[baseIndex], baseIndex, sizeof(Complex<T>)*chunk_size);
-                hipSetDevice(otherIndex);
+                GPU_CHECK(hipMemcpyPeer(swapBuffer2[otherIndex], otherIndex, swapBuffer1[baseIndex], baseIndex, sizeof(Complex<T>)*chunk_size));
+                GPU_CHECK(hipSetDevice(otherIndex));
                 swapqbitKernelIndirectAccessEXTRACT<<<dim3(blocknumber), dim3(threadnumber), 0, 0>>>((nqbits - number_of_gpu_log2), q1, 0, gpu_qbits_states[otherIndex], swapBuffer1[otherIndex], current, work_per_thread);
-                hipMemcpyPeerAsync(swapBuffer2[baseIndex], baseIndex, swapBuffer1[otherIndex], otherIndex, sizeof(Complex<T>)*chunk_size, 0);
+                GPU_CHECK(hipMemcpyPeerAsync(swapBuffer2[baseIndex], baseIndex, swapBuffer1[otherIndex], otherIndex, sizeof(Complex<T>)*chunk_size, 0));
             }
             for (int i = 0; i < number_of_gpu; i++){
-                hipDeviceSynchronize();
+                GPU_CHECK(hipDeviceSynchronize());
             }
             for (int i = 0; i < number_of_gpu/2; i++){
                 //swapBuffer1 will be for sending and 2 for receiving
@@ -645,13 +652,13 @@ private:
                 int threadnumber = min(1024llu, (chunk_size));
                 int blocknumber = min((1llu << 12), (chunk_size)/threadnumber);
                 int work_per_thread = max(1llu, chunk_size/threadnumber/blocknumber);
-                hipSetDevice(baseIndex);
+                GPU_CHECK(hipSetDevice(baseIndex));
                 swapqbitKernelIndirectAccessIMPORT<<<dim3(blocknumber), dim3(threadnumber), 0, 0>>>((nqbits - number_of_gpu_log2), q1, 1llu, gpu_qbits_states[baseIndex], swapBuffer2[baseIndex], current, work_per_thread);
-                hipSetDevice(otherIndex);
+                GPU_CHECK(hipSetDevice(otherIndex));
                 swapqbitKernelIndirectAccessIMPORT<<<dim3(blocknumber), dim3(threadnumber), 0, 0>>>((nqbits - number_of_gpu_log2), q1, 0, gpu_qbits_states[otherIndex], swapBuffer2[otherIndex], current, work_per_thread);
             }
             for (int i = 0; i < number_of_gpu; i++){
-                hipDeviceSynchronize();
+                GPU_CHECK(hipDeviceSynchronize());
             }
         }
     }
@@ -670,15 +677,15 @@ private:
                 int threadnumber = min(1024llu, (chunk_size));
                 int blocknumber = min((1llu << 12), (chunk_size)/threadnumber);
                 int work_per_thread = max(1llu, chunk_size/threadnumber/blocknumber);
-                hipSetDevice(baseIndex);
+                GPU_CHECK(hipSetDevice(baseIndex));
                 swapqbitKernelIndirectAccessEXTRACT<<<dim3(blocknumber), dim3(threadnumber), 0, 0>>>((nqbits - number_of_gpu_log2), q1, 1llu, gpu_qbits_states[baseIndex], swapBuffer1[baseIndex], current, work_per_thread);
-                hipMemcpyDtoHAsync(cswapBuffer[baseIndex], (hipDeviceptr_t)swapBuffer1[baseIndex], sizeof(Complex<T>)*chunk_size, 0);
-                hipSetDevice(otherIndex);
+                GPU_CHECK(hipMemcpyDtoHAsync(cswapBuffer[baseIndex], (hipDeviceptr_t)swapBuffer1[baseIndex], sizeof(Complex<T>)*chunk_size, 0));
+                GPU_CHECK(hipSetDevice(otherIndex));
                 swapqbitKernelIndirectAccessEXTRACT<<<dim3(blocknumber), dim3(threadnumber), 0, 0>>>((nqbits - number_of_gpu_log2), q1, 0, gpu_qbits_states[otherIndex], swapBuffer1[otherIndex], current, work_per_thread);
-                hipMemcpyDtoHAsync(cswapBuffer[otherIndex], (hipDeviceptr_t)swapBuffer1[otherIndex], sizeof(Complex<T>)*chunk_size, 0);
+                GPU_CHECK(hipMemcpyDtoHAsync(cswapBuffer[otherIndex], (hipDeviceptr_t)swapBuffer1[otherIndex], sizeof(Complex<T>)*chunk_size, 0));
             }
             for (int i = 0; i < number_of_gpu; i++){
-                hipDeviceSynchronize();
+                GPU_CHECK(hipDeviceSynchronize());
             }
             for (int i = 0; i < number_of_gpu/2; i++){
                 //swapBuffer1 will be for sending and 2 for receiving
@@ -688,15 +695,15 @@ private:
                 int threadnumber = min(1024llu, (chunk_size));
                 int blocknumber = min((1llu << 12), (chunk_size)/threadnumber);
                 int work_per_thread = max(1llu, chunk_size/threadnumber/blocknumber);
-                hipSetDevice(baseIndex);
-                hipMemcpyHtoDAsync((hipDeviceptr_t)swapBuffer2[baseIndex], cswapBuffer[otherIndex], sizeof(Complex<T>)*chunk_size, 0);
+                GPU_CHECK(hipSetDevice(baseIndex));
+                GPU_CHECK(hipMemcpyHtoDAsync((hipDeviceptr_t)swapBuffer2[baseIndex], cswapBuffer[otherIndex], sizeof(Complex<T>)*chunk_size, 0));
                 swapqbitKernelIndirectAccessIMPORT<<<dim3(blocknumber), dim3(threadnumber), 0, 0>>>((nqbits - number_of_gpu_log2), q1, 1llu, gpu_qbits_states[baseIndex], swapBuffer2[baseIndex], current, work_per_thread);
-                hipSetDevice(otherIndex);
-                hipMemcpyHtoDAsync((hipDeviceptr_t)swapBuffer2[otherIndex], cswapBuffer[baseIndex], sizeof(Complex<T>)*chunk_size, 0);
+                GPU_CHECK(hipSetDevice(otherIndex));
+                GPU_CHECK(hipMemcpyHtoDAsync((hipDeviceptr_t)swapBuffer2[otherIndex], cswapBuffer[baseIndex], sizeof(Complex<T>)*chunk_size, 0));
                 swapqbitKernelIndirectAccessIMPORT<<<dim3(blocknumber), dim3(threadnumber), 0, 0>>>((nqbits - number_of_gpu_log2), q1, 0, gpu_qbits_states[otherIndex], swapBuffer2[otherIndex], current, work_per_thread);
             }
             for (int i = 0; i < number_of_gpu; i++){
-                hipDeviceSynchronize();
+                GPU_CHECK(hipDeviceSynchronize());
             }
         }
     }
@@ -727,17 +734,17 @@ private:
 
         int** groupqbitsgpu = (int**)malloc(sizeof(int*)*number_of_gpu);
         for (int m = 0; m < number_of_gpu; m++){
-            hipSetDevice(m);
-            hipMalloc(groupqbitsgpu+m, sizeof(int)*qbits.size());
-            hipMemcpyHtoDAsync((hipDeviceptr_t)groupqbitsgpu[m], qbits.data(), sizeof(int)*qbits.size(), 0);
+            GPU_CHECK(hipSetDevice(m));
+            GPU_CHECK(hipMalloc(groupqbitsgpu+m, sizeof(int)*qbits.size()));
+            GPU_CHECK(hipMemcpyHtoDAsync((hipDeviceptr_t)groupqbitsgpu[m], qbits.data(), sizeof(int)*qbits.size(), 0));
         }
     
         for (int m = 0; m < number_of_gpu; m++){
-            hipSetDevice(m);
+            GPU_CHECK(hipSetDevice(m));
             hipDeviceProp_t devattr;
             int device;
-            hipGetDevice(&device);
-	        hipGetDeviceProperties(&devattr, device);
+            GPU_CHECK(hipGetDevice(&device));
+	        GPU_CHECK(hipGetDeviceProperties(&devattr, device));
             size_t totalshared_block = devattr.sharedMemPerBlock;
             int threadnumber = min(1024llu, (1llu << (qbits.size())));
             int blocknumber = min((1llu << 20), (1llu << ((nqbits - number_of_gpu_log2) - qbits.size())));
@@ -749,9 +756,9 @@ private:
         }
 
         for (int m = 0; m < number_of_gpu; m++){
-            hipSetDevice(m);
-            hipDeviceSynchronize();
-            hipFree(groupqbitsgpu[m]);
+            GPU_CHECK(hipSetDevice(m));
+            GPU_CHECK(hipDeviceSynchronize());
+            GPU_CHECK(hipFree(groupqbitsgpu[m]));
         }
         free(groupqbitsgpu);
     }
