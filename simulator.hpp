@@ -1,5 +1,7 @@
 #include "gate.hpp"
 #include<chrono>
+#include<thread>
+#define THREADNUMBER 64
 
 #define USE_PEER_NON_UNIFIED 1
 #include<hip/hip_runtime.h>
@@ -12,6 +14,12 @@ using std::chrono::milliseconds;
 class proba_state{ //non entangled
 public:
     vector<pair<double, double>> val;
+    proba_state(int nqbits){
+        val.clear();
+        for (int i = 0; i < nqbits; i++){
+            val.push_back(make_pair(0, 0));
+        }
+    }
     proba_state(vector<pair<double, double>>& v){
         val = v;
     }
@@ -56,8 +64,8 @@ __global__ void initialize_probastate(int nqbits, Complex<T>* memory, Complex<T>
 template<typename T>
 __global__ void measureKernel(int nqbits, Complex<T>* qbitsstate, Complex<T>* allresultsend){
     size_t tid = threadIdx.x + blockIdx.x*blockDim.x;
-    int work_per_block = (1llu << nqbits)/gridDim.x;
-    //int work_per_thread = (1llu << nqbits)/blockDim.x/gridDim.x;
+    //int work_per_block = (1llu << nqbits)/gridDim.x;
+    int work_per_thread = (1llu << nqbits)/blockDim.x/gridDim.x;
     //we need 2*nqbits complex to save our results
     allresultsend += (2*nqbits)*tid;
     Complex<T> allresults[64]; //all 0 then all 1
@@ -66,15 +74,45 @@ __global__ void measureKernel(int nqbits, Complex<T>* qbitsstate, Complex<T>* al
         allresults[i].b = 0.;
     }
 
-    for (int i = blockIdx.x*work_per_block+threadIdx.x; i < (blockIdx.x+1)*work_per_block; i+=blockDim.x){
+    for (int i = tid*work_per_thread; i < (tid+1)*work_per_thread; i++){
         for (int qbit = 0; qbit < nqbits; qbit++){
-            allresults[nqbits*((i >> qbit)%2) + qbit] += qbitsstate[i];
-
+            allresults[qbit*2 + ((i >> qbit)%2)] += qbitsstate[i];
         }
     }
 
     for (int i = 0; i < 2*nqbits; i++){
         allresultsend[i] = allresults[i];
+    }
+}
+
+template<typename T>
+__global__ void measureKernelqbit(int nqbits, Complex<T>* qbitsstate, Complex<T>* allresultsend, int qbit){
+    size_t tid = threadIdx.x + blockIdx.x*blockDim.x;
+    //int work_per_block = (1llu << nqbits)/gridDim.x;
+    int work_per_thread = (1llu << nqbits)/blockDim.x/gridDim.x;
+    
+    extern __shared__ Complex<T> res[];
+    Complex<T>* myres = res + threadIdx.x*2;
+
+    for (int i = tid*work_per_thread; i < (tid+1)*work_per_thread; i++){
+        myres[(i >> qbit)%2] += qbitsstate[i];
+    }
+
+    __syncthreads();
+    //pointer jumping
+    int i = 1;
+    while (i < blockDim.x){
+        if (threadIdx.x+i < blockDim.x && threadIdx.x%(2*i) == 0){
+            myres[0] += myres[2*i];
+            myres[1] += myres[2*i+1];
+        }
+        i *= 2;
+        __syncthreads();
+    }
+
+    if (threadIdx.x == 0){
+        allresultsend[blockIdx.x*2] = myres[0];
+        allresultsend[blockIdx.x*2+1] = myres[1];
     }
 }
 
@@ -419,23 +457,24 @@ private:
             temp = 0;
             hipSetDevice(i);
             hipDeviceSynchronize();
-            hipFree(measureintermediate_d+i);
+            hipFree(measureintermediate_d[i]);
             for (int j = 0; j < threadnumber*blocknumber; j++){
                 for (int k = 0; k < 2*(nqbits-number_of_gpu_log2); k++){
-                    measure[(k < nqbits - number_of_gpu_log2)?k:k+number_of_gpu_log2] += measureintermediate[i*threadnumber*blocknumber*2*(nqbits-number_of_gpu_log2) + j*2*(nqbits-number_of_gpu_log2) + k];
-                    temp += measureintermediate[i*threadnumber*blocknumber*2*(nqbits-number_of_gpu_log2) + j*2*(nqbits-number_of_gpu_log2) + k];
+                    measure[k] += measureintermediate[i*threadnumber*blocknumber*2*(nqbits-number_of_gpu_log2) + j*2*(nqbits-number_of_gpu_log2) + k];
                 }
+                temp += measureintermediate[i*threadnumber*blocknumber*2*(nqbits-number_of_gpu_log2) + j*2*(nqbits-number_of_gpu_log2) + 0];
+                temp += measureintermediate[i*threadnumber*blocknumber*2*(nqbits-number_of_gpu_log2) + j*2*(nqbits-number_of_gpu_log2) + 1];
             }
             for (int j = 0; j < number_of_gpu_log2; j++){
-                measure[((i >> j)%2)*nqbits + j+(nqbits - number_of_gpu_log2)] += temp;
+                measure[((i >> j)%2) + 2*(j+(nqbits - number_of_gpu_log2))] += temp;
             }
         }
 
         //now we just need to get the spin
         vector<pair<double,  double>> res(nqbits);
         for (int i = 0; i < nqbits; i++){
-            Complex<T> val0 = measure[i];
-            Complex<T> val1 = measure[nqbits+i];
+            Complex<T> val0 = measure[2*i];
+            Complex<T> val1 = measure[2*i+1];
             double teta, phi;
             if (val0.norm() < 0.0000000000001){
                 teta = 1;
@@ -455,6 +494,101 @@ private:
         free(measure);
 
         return proba_state(res);
+    }
+    proba_state measurement3(){ //full multi threaded cpu version
+        int localqbits = nqbits - number_of_gpu_log2;
+        int usable_threads = min((int)THREADNUMBER, (1 << localqbits));
+        Complex<T>* buffer1 = (Complex<T>*)malloc(sizeof(Complex<T>)*(1llu << localqbits));
+        Complex<T>* buffer2 = (Complex<T>*)malloc(sizeof(Complex<T>)*(1llu << localqbits));
+        Complex<T>* threadres = (Complex<T>*)malloc(sizeof(Complex<T>)*usable_threads*localqbits*2);
+        Complex<T>* measure = (Complex<T>*)malloc(sizeof(Complex<T>)*localqbits*2);
+        vector<thread> threads;
+        Complex<T> temp;
+
+        for (int i = 0; i < usable_threads*2*localqbits; i++){
+            threadres[i] = 0;
+        }
+        for (int i = 0; i < 2*localqbits; i++){
+            measure[i] = 0;
+        }
+        
+        auto threadef = [&localqbits](Complex<T>* res, Complex<T>* buffer, size_t i, size_t j){
+            for (int i = 0; i < j; i++){
+                for (int qbit = 0; qbit < localqbits; qbit++){
+                    res[qbit*2 + ((i >> qbit)%2)] += buffer[i];
+                }
+            }
+        };
+
+
+        //parallel load from gpu and compute on cpu
+        hipSetDevice(0);
+        hipMemcpyDtoH(buffer1, (hipDeviceptr_t)gpu_qbits_states[0], sizeof(Complex<T>)*(1llu << localqbits));
+
+        for (int i = 0; i < number_of_gpu; i++){
+            threads.clear();
+            if (i+1 < number_of_gpu){
+                hipSetDevice(i+1);
+                hipMemcpyDtoHAsync(buffer2, (hipDeviceptr_t)gpu_qbits_states[i+1], sizeof(Complex<T>)*(1llu << localqbits), 0);
+            }
+            //let's compute for buffer 1
+            size_t work_per_thread = ((1llu << localqbits)/usable_threads);
+            for (int j = 0; j < usable_threads; j++){
+                threads.emplace_back(threadef, threadres+2*localqbits*j, buffer1, (size_t)j*work_per_thread, (size_t)min(1llu << localqbits, (j+1)*work_per_thread));
+            }
+
+            for (auto& el: threads){
+                el.join();
+            }
+
+            //now I just need to get the total measure for global qbits purpose
+            temp = 0;
+            for (int j = 0; j < usable_threads; j++){
+                temp += threadres[j*localqbits*2];
+                temp += threadres[j*localqbits*2+1]; //only need qbit 0 at value 0 and 1 for that
+            }
+
+            for (int j = 0; j < number_of_gpu_log2; j++){
+                measure[((i >> j)%2) + 2*(j+localqbits)] += temp;
+            }
+
+            if (i+1 < number_of_gpu) hipDeviceSynchronize();
+
+            swap(buffer1, buffer2);
+        }
+        //now we can add the results of every threads to end all localqbits
+        for (int i = 0; i < localqbits; i++){
+            for (int j = 0; j < usable_threads; j++){
+                measure[2*i] += threadres[j*localqbits*2 + 2*i];
+                measure[2*i+1] += threadres[j*localqbits*2 + 2*i+1];
+            }
+        }
+
+        //now we just need to get the spin
+        vector<pair<double,  double>> res(nqbits);
+        for (int i = 0; i < nqbits; i++){
+            Complex<T> val0 = measure[2*i];
+            Complex<T> val1 = measure[2*i+1];
+            double teta, phi;
+            if (val0.norm() < 0.0000000000001){
+                teta = 1;
+                phi = 0;
+            } else if (val1.norm() < 0.00000000000001) {
+                teta = 0;
+                phi = 0;
+            } else {
+                teta = atan((val1.norm())/(val0.norm()))/(PI/2);
+                phi = (val1/val0).angle();
+            }
+            res[final_inverse_permutation[i]] = make_pair(teta, phi);
+        }
+
+        free(buffer1);
+        free(buffer2);
+        free(threadres);
+        free(measure);
+
+        return proba_state(res);        
     }
     void swapqbitDirectAccess(int q1, int q2){ //q1 local, q2 global (local/local is a swap gate, global/global is a gpu permutation but useless here)
         q2 -= nqbits - number_of_gpu_log2;

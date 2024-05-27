@@ -288,6 +288,7 @@ public:
                         }
                         Complex<T> sum = 0;
                         for (size_t matcol = 0; matcol < (1llu << gateqbits); matcol++){
+
                             tempind = baseind;
                             for (int i = 0; i < gateqbits; i++){
                                 tempind += ((matcol >> i)%2) << bit_to_groupbitnumber[qbits[i]];
@@ -928,6 +929,11 @@ public:
                         if (nextsee[inversepermutation[j]] > nextsee[worstqbit]){
                             worstqbit = inversepermutation[j];
                         }
+                    }
+
+                    if (worstqbit == -1){
+                        cout << "ALLOCATION FAILED: not enough localqbit available for a given group" << endl;
+                        return;
                     }
                     //beware that pairs take into account permutations that have already happened!
                     

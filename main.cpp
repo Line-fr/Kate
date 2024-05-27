@@ -124,17 +124,9 @@ int main(){
 
     //quantumOPTTest();
 
-    int nqbits = 28;
+    int nqbits = 26;
 
-    QuantumCircuit<double> circuit(nqbits);
-    vector<int> qbits;
-
-    for (int i = 1; i < nqbits; i++){
-        qbits = {i};
-        circuit.appendGate(Gate<double>(2, qbits));
-    }
-
-    circuit.print();
+    QuantumCircuit<double> circuit = QFT<double>(nqbits);
 
     circuit.compileOPT(5, 0.00001, 10, 0, 28);
 
@@ -146,11 +138,12 @@ int main(){
 
     res.print();
 
-    res = sim.execute(res, true);
+    //res = sim.execute(res, true);
 
-    res.print();
+    //res.print();
 
     /*
+    proba_state st(25);
     auto t1 = high_resolution_clock::now();
     auto t2 = high_resolution_clock::now();
     auto circuit = randomCircuit<double>(25, 10);
@@ -158,8 +151,8 @@ int main(){
     for (int i = 0; i < 100; i++){
         circuit = randomCircuit<double>(25, 10);
         t1 = high_resolution_clock::now();
-        circuit.compileOPT(5, 1, 10, 0);
-        Simulator<double>(circuit, 1).execute(true);
+        //circuit.compileOPT(5, 1, 10, 0);
+        Simulator<double>(circuit, 1).execute(st, true);
         t2 = high_resolution_clock::now();
         duration<double, std::milli> ms_double_compute = t2 - t1;
         sum += ms_double_compute.count();
