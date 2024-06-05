@@ -482,11 +482,6 @@ private:
         for (int i = 0; i < nqbits; i++){
             Complex<T> val0 = measure[2*i]/pow(SQRT2, (double)nqbits);
             Complex<T> val1 = measure[2*i+1]/pow(SQRT2, (double)nqbits);
-            cout << "value of i = " << i << " : ";
-            val0.print();
-            cout << " , ";
-            val1.print();
-            cout << endl;
             double teta, phi;
             if (val0.norm() < 0.0000000000001){
                 teta = 1;
