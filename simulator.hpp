@@ -480,8 +480,13 @@ private:
         //now we just need to get the spin
         vector<pair<double,  double>> res(nqbits);
         for (int i = 0; i < nqbits; i++){
-            Complex<T> val0 = measure[2*i];
-            Complex<T> val1 = measure[2*i+1];
+            Complex<T> val0 = measure[2*i]/pow(SQRT2, (double)nqbits);
+            Complex<T> val1 = measure[2*i+1]/pow(SQRT2, (double)nqbits);
+            cout << "value of i = " << i << " : ";
+            val0.print();
+            cout << " , ";
+            val1.print();
+            cout << endl;
             double teta, phi;
             if (val0.norm() < 0.0000000000001){
                 teta = 1;
@@ -574,8 +579,8 @@ private:
         //now we just need to get the spin
         vector<pair<double,  double>> res(nqbits);
         for (int i = 0; i < nqbits; i++){
-            Complex<T> val0 = measure[2*i];
-            Complex<T> val1 = measure[2*i+1];
+            Complex<T> val0 = measure[2*i]/pow(SQRT2, (double)nqbits);
+            Complex<T> val1 = measure[2*i+1]/pow(SQRT2, (double)nqbits);
             double teta, phi;
             if (val0.norm() < 0.0000000000001){
                 teta = 1;
@@ -612,7 +617,7 @@ private:
             GPU_CHECK(hipSetDevice(baseIndex));
             swapqbitKernelDirectAcess<<<dim3(blocknumber), dim3(threadnumber), 0, 0>>>((nqbits - number_of_gpu_log2), q1, gpu_qbits_states[baseIndex], gpu_qbits_states[otherIndex], 0, work_per_thread);
             GPU_CHECK(hipSetDevice(otherIndex));
-            swapqbitKernelDirectAcess<<<dim3(blocknumber), dim3(threadnumber), 0, 0>>>((nqbits - number_of_gpu_log2), q1, gpu_qbits_states[baseIndex], gpu_qbits_states[otherIndex], (1llu << (nqbits - number_of_gpu_log2))/work_per_thread/2, work_per_thread);
+            swapqbitKernelDirectAcess<<<dim3(blocknumber), dim3(threadnumber), 0, 0>>>((nqbits - number_of_gpu_log2), q1, gpu_qbits_states[baseIndex], gpu_qbits_states[otherIndex], (1llu << (nqbits - number_of_gpu_log2))/2, work_per_thread);
         }
         for (int i = 0; i < number_of_gpu; i++){
             GPU_CHECK(hipDeviceSynchronize());
@@ -712,7 +717,8 @@ private:
             int q1 = pairset[2*i];
             int q2 = pairset[2*i+1];
             if (q2 < q1) swap(q1, q2);
-            swapqbitIndirectBufferSwap(q1, q2);
+            swapqbitDirectAccess(q1, q2);
+            //swapqbitBufferSwap(q1, q2);
         }
     }
     void executeCommand(int groupind){
