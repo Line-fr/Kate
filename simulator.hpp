@@ -1,5 +1,6 @@
 #include "gate.hpp"
 #include<chrono>
+#include<iomanip>
 #include<thread>
 #define THREADNUMBER 64
 
@@ -135,12 +136,14 @@ __global__ void initialize_state0(int nqbits, Complex<T>* memory){
 
 template<typename T> 
 __global__ void swapqbitKernelDirectAcess(int nqbits, int localq, Complex<T>* memory0, Complex<T>* memory1, int baseindex, int values_per_thread){
-    size_t tid = threadIdx.x + blockIdx.x*blockDim.x + baseindex;
+    size_t tid = threadIdx.x + blockIdx.x*blockDim.x;
 
     size_t mask = (1llu << localq) - 1;
     size_t mask2 = (1llu << (nqbits - 1)) - 1 - mask;
-    for (int i = tid*values_per_thread; i < (tid+1)*(values_per_thread); i++){
-        size_t baseIndex = (i&mask) + ((i&mask2) << 1);
+
+    for (size_t i = tid*values_per_thread; i < (tid+1)*(values_per_thread); i++){
+        size_t baseIndex = ((i+baseindex)&mask) + (((i+baseindex)&mask2) << 1);
+
         Complex<T> temp = memory1[baseIndex]; //we want the 0 of device which has the global 1;
         memory1[baseIndex] = memory0[baseIndex + (1llu << localq)]; //then we paste the 1 of the device which has the global 0
         memory0[baseIndex + (1llu << localq)] = temp;
@@ -154,7 +157,7 @@ __global__ void swapqbitKernelIndirectAccessEXTRACT(int nqbits, int localq, size
     size_t mask = (1llu << localq) - 1;
     size_t mask2 = (1llu << (nqbits - 1)) - 1 - mask;
 
-    for (int i = tid*values_per_thread; i < (tid+1)*(values_per_thread); i++){
+    for (size_t i = tid*values_per_thread; i < (tid+1)*(values_per_thread); i++){
         size_t value = ((i+baseindex)&mask) + (((i+baseindex)&mask2) << 1);
         
         buffer[i] = mymemory[value + ((qbitvalue) << localq)];
@@ -168,7 +171,7 @@ __global__ void swapqbitKernelIndirectAccessIMPORT(int nqbits, int localq, size_
     size_t mask = (1llu << localq) - 1;
     size_t mask2 = (1llu << (nqbits - 1)) - 1 - mask;
 
-    for (int i = tid*values_per_thread; i < (tid+1)*(values_per_thread); i++){
+    for (size_t i = tid*values_per_thread; i < (tid+1)*(values_per_thread); i++){
         size_t value = ((i+baseindex)&mask) + (((i+baseindex)&mask2) << 1);
         
         mymemory[value + ((qbitvalue) << localq)] = buffer[i];
@@ -608,11 +611,13 @@ private:
             int threadnumber = min(1024llu, (1llu << (nqbits - number_of_gpu_log2)));
             int blocknumber = min((1llu << 20), (1llu << (nqbits - number_of_gpu_log2))/threadnumber);
             int work_per_thread = max(1llu, (1llu << (nqbits - number_of_gpu_log2))/threadnumber/blocknumber);
-            if (blocknumber == 1) {threadnumber /= 2;} else {blocknumber /= 2;}
+            if (blocknumber == 1) {threadnumber /= 2;} else {blocknumber /= 2;} //half data
+
+            if (blocknumber == 1) {threadnumber /= 2;} else {blocknumber /= 2;}//for 2nd gpu work
             GPU_CHECK(hipSetDevice(baseIndex));
             swapqbitKernelDirectAcess<<<dim3(blocknumber), dim3(threadnumber), 0, 0>>>((nqbits - number_of_gpu_log2), q1, gpu_qbits_states[baseIndex], gpu_qbits_states[otherIndex], 0, work_per_thread);
             GPU_CHECK(hipSetDevice(otherIndex));
-            swapqbitKernelDirectAcess<<<dim3(blocknumber), dim3(threadnumber), 0, 0>>>((nqbits - number_of_gpu_log2), q1, gpu_qbits_states[baseIndex], gpu_qbits_states[otherIndex], (1llu << (nqbits - number_of_gpu_log2))/2, work_per_thread);
+            swapqbitKernelDirectAcess<<<dim3(blocknumber), dim3(threadnumber), 0, 0>>>((nqbits - number_of_gpu_log2), q1, gpu_qbits_states[baseIndex], gpu_qbits_states[otherIndex], (1llu << (nqbits - number_of_gpu_log2))/4, work_per_thread);
         }
         for (int i = 0; i < number_of_gpu; i++){
             GPU_CHECK(hipDeviceSynchronize());
