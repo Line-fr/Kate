@@ -16,6 +16,8 @@
 #define CNOT 3
 #define CRk 4
 #define TOFFOLI 5
+#define RX 6
+#define RZ 7
 
 #define GPU_CHECK(x)\
 err = (x);\
@@ -59,11 +61,15 @@ class Gate{
 public:
     int identifier = -1; //0 is dense, 2 is H, 3 is CNOT,...
     int optarg;
+    double optarg2;
+    Complex<T> optarg3;
     Matrix<Complex<T>> densecontent = NULL;
     vector<int> qbits;
-    Gate(int identifier, vector<int>& qbits, int optarg = 0){
+    Gate(int identifier, vector<int>& qbits, int optarg = 0, double optarg2 = 0, Complex<T> optarg3 = 0){
         this->identifier = identifier;
         this->optarg = optarg;
+        this->optarg2 = optarg2;
+        this->optarg3 = optarg3;
         if (identifier == 0) {
             cout << "you are creating a dense matrix without specifying it. Memory error incoming" << endl;
         }
@@ -149,6 +155,8 @@ class GPUGate{
 public:
     int identifier = -1;
     int optarg;
+    double optarg2;
+    Complex<T> optarg3;
     GPUMatrix<Complex<T>> densecontent;
     int* qbits = NULL;
     int* ordered_qbits = NULL;
@@ -344,6 +352,8 @@ GPUGate<T> createGPUGate(const Gate<T>& other){
     GPUGate<T> res;
     res.identifier = other.identifier;
     res.optarg = other.optarg;
+    res.optarg2 = other.optarg2;
+    res.optarg3 = other.optarg3;
     res.densecontent = createGPUMatrix<Complex<T>>(other.densecontent);
     res.nbqbits = other.qbits.size();
     GPU_CHECK(hipMalloc(&res.qbits, sizeof(int)*res.nbqbits));
