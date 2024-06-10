@@ -304,7 +304,10 @@ public:
             //enabling direct inter device kernel communications
             for (int j = 0; j < number_of_gpu; j++){
                 if (i == j) continue;
-                GPU_CHECK(hipDeviceEnablePeerAccess(j, 0));
+                err = hipDeviceEnablePeerAccess(j, 0);
+                if ((int)err != 704){
+                    GPU_CHECK(err);
+                }
             }
         }
         for (int i = 0; i < number_of_gpu; i++){
