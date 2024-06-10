@@ -894,7 +894,7 @@ public:
         groups[groups.size()-1].first = gate_set_ordered.size();
         groups[groups.size()-1].second = precompute;
     }
-    void allocate(int numberofgpulog2 = 0, int maxlocalqbitnumber= 28){ //OPTIMISATION STEP 4 (it can be further optimised taking into account multiple swaps at the same time)
+    void allocate(int numberofgpulog2 = 0, int maxlocalqbitnumber= 30){ //OPTIMISATION STEP 4 (it can be further optimised taking into account multiple swaps at the same time)
         //only support homogeneous gpus or the slow one will slow the big one
         if (maxlocalqbitnumber + numberofgpulog2 < nqbits){
             cout << "Error: Can't allocate - Too much qbits in the circuit to handle with " << maxlocalqbitnumber << " localqbits and " << (1llu << numberofgpulog2) << " gpus" << endl;
@@ -1042,7 +1042,7 @@ public:
         gateGrouping(groupsize);
         allocate(numberofgpulog2, maxlocalqbitnumber); //will try to use every gpus you give it! sometimes it is not worth it
     }
-    void compileDefault(int numberofgpulog2 = 0, int maxlocalqbitnumber = 28){ //for every optimization that hasnt been done but was necessary, it will use naive things to replace them
+    void compileDefault(int numberofgpulog2 = 0, int maxlocalqbitnumber = 30){ //for every optimization that hasnt been done but was necessary, it will use naive things to replace them
         //only support homogeneous gpus or the slow one will slow the big one
         if (instructions.size() != 0) return; // case where everything has already been done (possible that allocate was optimized but not grouping)
         
@@ -1120,5 +1120,76 @@ public:
             k = groups[group].first;
         }
         final_inverse_permutation = inversepermutation;
+    }
+    void dual_phase_allocation(int gpu_per_node_log2, int nodelog2){ //will produce global global swaps (from slow and fast qbits)
+        QuantumCircuit<T> we = *this;
+        we.allocate(nodelog2); //first consider the allocation with global qbits nodelog2
+        QuantumCircuit<T> res(we.gate_set_ordered, nqbits-nodelog2); //virtually, this new circuit works on only fastqbits
+        res.groups = we.groups; //groups are the same
+        //WE SHOULD NOT OPTIMIZE THIS CIRCUIT except allocation
+        res.allocate(gpu_per_node_log2); //this time we allocate with the real local qbits
+
+        //now we need to adapt these results to our own circuit: restore initial and final permutation, put swap commands, get back data
+        groups = res.groups; //we take the last subjective version (without any non local qbits)
+        gate_set_ordered = res.gate_set_ordered;
+        //qbits_number is not touched
+        initial_permutation = vector<int>(nqbits);
+        final_inverse_permutation = vector<int>(nqbits);
+
+        for (int i = nqbits-nodelog2; i < nqbits; i++){
+            initial_permutation[i] = we.initial_permutation[i];
+            final_inverse_permutation[i] = we.final_inverse_permutation[i];
+        }
+        for (int i = 0; i < nqbits; i++){
+            if (we.initial_permutation[i] < nqbits-nodelog2){
+                initial_permutation[i] = res.initial_permutation[we.initial_permutation[i]];
+            } else { //we start in global so we are not modified by res
+                initial_permutation[i] = we.initial_permutation[i];
+            }
+            if (i < nqbits-nodelog2){
+                final_inverse_permutation[i] = we.final_inverse_permutation[res.final_inverse_permutation[i]];
+            } else {//i is not in res managment
+                final_inverse_permutation[i] = we.final_inverse_permutation[i];
+            }
+        }
+        //we need to change the swap order from we to make them subjective with respect to res this requires going through all the instructions and keeping the permutation table of res.
+        instructions = {};
+        vector<int> pairsset;
+        vector<int> we_to_res = res.initial_permutation;
+        vector<int> res_to_we(nqbits-nodelog2);
+        for (int i = 0; i < nqbits-nodelog2; i++){
+            res_to_we[we_to_res[i]] = i;
+        }
+        int instridres = 0;
+        int instridwe = 0;
+        for (int groupid = 0; groupid < groups.size(); groupid++){
+            while (we.instructions[instridwe].first != 1){
+                //we got a swap command to transform
+                pairsset = {};
+                for (const auto& el: we.instructions[instridwe].second){
+                    if (el >= nqbits-nodelog2) {pairsset.push_back(el); continue;}
+                    pairsset.push_back(we_to_res[el]);
+                }
+                instructions.push_back(make_pair(0, pairsset));
+                instridwe++;
+            }
+            instridwe++;
+            while (res.instructions[instridres].first != 1){
+                //we got a res swap command to refresh we_to_res
+                for (int i = 0; i+1 < res.instructions[instridres].second.size(); i += 2){
+                    int first = res.instructions[instridres].second[i];
+                    int second = res.instructions[instridres].second[i+1];
+                    //swap first and second (they are subjective to res)
+                    swap(res_to_we[first], res_to_we[second]);
+                    swap(we_to_res[res_to_we[first]], we_to_res[res_to_we[second]]);
+                }
+                instructions.push_back(res.instructions[instridres]);
+                instridres++;
+            }
+            instridres++;
+            //finally we can add the command execution
+            instructions.push_back(make_pair(1, vector<int>()));
+            
+        }
     }
 };
