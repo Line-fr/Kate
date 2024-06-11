@@ -7,13 +7,6 @@
 #define USE_PEER_NON_UNIFIED 1
 #include<hip/hip_runtime.h>
 
-#define GPU_CHECK(x)\
-err = (x);\
-if (err != hipSuccess)\
-{\
-   	cout << hipGetErrorString(x) << " in " << __FILE__ << " at line " << __LINE__ << endl;\
-}
-
 using std::chrono::high_resolution_clock;
 using std::chrono::duration_cast;
 using std::chrono::duration;

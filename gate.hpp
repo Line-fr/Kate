@@ -19,13 +19,6 @@
 #define RX 6
 #define RZ 7
 
-#define GPU_CHECK(x)\
-err = (x);\
-if (err != hipSuccess)\
-{\
-   	cout << hipGetErrorString(x) << " in " << __FILE__ << " at line " << __LINE__ << endl;\
-}
-
 using std::chrono::high_resolution_clock;
 using std::chrono::duration_cast;
 using std::chrono::duration;

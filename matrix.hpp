@@ -7,7 +7,7 @@
 err = (x);\
 if (err != hipSuccess)\
 {\
-   	cout << hipGetErrorString(x) << " in " << __FILE__ << " at line " << __LINE__ << endl;\
+   	cout << hipGetErrorString(err) << " in " << __FILE__ << " at line " << __LINE__ << endl;\
 }
 hipError_t err;
 
