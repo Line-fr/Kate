@@ -894,7 +894,7 @@ public:
         groups[groups.size()-1].first = gate_set_ordered.size();
         groups[groups.size()-1].second = precompute;
     }
-    void allocate(int numberofgpulog2 = 0, int maxlocalqbitnumber= 30){ //OPTIMISATION STEP 4 (it can be further optimised taking into account multiple swaps at the same time)
+    void allocate(int numberofgpulog2 = 0, int maxlocalqbitnumber= 300){ //OPTIMISATION STEP 4 (it can be further optimised taking into account multiple swaps at the same time)
         //only support homogeneous gpus or the slow one will slow the big one
         if (maxlocalqbitnumber + numberofgpulog2 < nqbits){
             cout << "Error: Can't allocate - Too much qbits in the circuit to handle with " << maxlocalqbitnumber << " localqbits and " << (1llu << numberofgpulog2) << " gpus" << endl;
@@ -925,7 +925,7 @@ public:
         vector<int> last_seen(nqbits, INT32_MAX); //you wouldn't use anywhere close to 2**32 gates right?
         for (int i = groups.size()-1; i >= 0; i--){
             for (const auto& el: groups[i].second){ //all qbit of a group
-                precompute[i].insert(make_pair(el, last_seen[el]));
+                precompute[i].insert(make_pair(el, last_seen[el] - i));
                 last_seen[el] = i;
             }
         }
@@ -1036,13 +1036,13 @@ public:
 
         final_inverse_permutation = inversepermutation;
     }
-    void compileOPT(int qbit_matrix_merge_size_limit = 5, double merge_time_matters = 0.000001, int groupsize = 10, int numberofgpulog2 = 0, int maxlocalqbitnumber = 28){
+    void compileOPT(int qbit_matrix_merge_size_limit = 5, double merge_time_matters = 0.000001, int groupsize = 10, int numberofgpulog2 = 0, int maxlocalqbitnumber = 300){
         gateScheduling();
         gateFusion(qbit_matrix_merge_size_limit, merge_time_matters);
         gateGrouping(groupsize);
         allocate(numberofgpulog2, maxlocalqbitnumber); //will try to use every gpus you give it! sometimes it is not worth it
     }
-    void compileDefault(int numberofgpulog2 = 0, int maxlocalqbitnumber = 30){ //for every optimization that hasnt been done but was necessary, it will use naive things to replace them
+    void compileDefault(int numberofgpulog2 = 0, int maxlocalqbitnumber = 300){ //for every optimization that hasnt been done but was necessary, it will use naive things to replace them
         //only support homogeneous gpus or the slow one will slow the big one
         if (instructions.size() != 0) return; // case where everything has already been done (possible that allocate was optimized but not grouping)
         
@@ -1191,5 +1191,205 @@ public:
             instructions.push_back(make_pair(1, vector<int>()));
             
         }
+    }
+    void slow_fast_allocation(int fastqbits, int slowqbits, double fasttime, double slowtime){
+        instructions = {};
+        //if no grouping optimisation is done, we will use naive grouping which is one group per gate because it is necessary for our later processing
+        if (groups.size() == 0){
+            for (int i = 0; i < gate_set_ordered.size(); i++){
+                groups.push_back(make_pair(i+1, set<int>(gate_set_ordered[i].qbits.begin(), gate_set_ordered[i].qbits.end())));
+            }
+        }
+        //if (nqbits <= maxlocalqbitnumber || numberofgpulog2 == 0){
+        //    //just need to push compute1 number of group times
+        //    for (int i = 0; i < groups.size(); i++){
+        //        instructions.push_back(make_pair(1, vector<int>()));
+        //    }
+        //    return;
+        //}
+        //we need to know at each step when will a qbit be useful next. 
+        //A way to do it in linear time is to precompute when it is used when it will be used next which can be done in linear time
+        //there is complicated but doable way of doing it in nlogn total but here we will see a n**2 way with the precomputation
+        vector<set<pair<int, int>>> precompute(groups.size()); //pair<int,int> is (qbit, time before reappearing)
+        vector<int> last_seen(nqbits, INT32_MAX); //you wouldn't use anywhere close to 2**32 gates right?
+        for (int i = groups.size()-1; i >= 0; i--){
+            for (const auto& el: groups[i].second){ //all qbit of a group
+                precompute[i].insert(make_pair(el, last_seen[el] - i));
+                last_seen[el] = i;
+            }
+        }
+        //now we can start allocating in the direct direction instead of the reverse one like the precomputation
+
+        //first is the initialization using.. the remaining unused end state of last_seen!
+        vector<int> last_seenid(last_seen.size());
+        for (int i = 0; i < nqbits; i++){
+            last_seenid[i] = i;
+        } //we will sort the array so this is useful to remember indexes
+        sort(last_seenid.begin(), last_seenid.end(), [&last_seen](int a, int b){return last_seen[a] < last_seen[b];});
+        vector<int> locals, fasts, slows;
+        locals = vector<int>(last_seenid.begin(),last_seenid.end()-slowqbits-fastqbits);
+        fasts = vector<int>(last_seenid.end()-slowqbits-fastqbits, last_seenid.end()-slowqbits);
+        slows = vector<int>(last_seenid.end()-slowqbits, last_seenid.end());
+        //last part of initialization
+        vector<int> nextsee(nqbits, 0);
+        vector<int> permutation(nqbits, 0); //super important
+        vector<int> inversepermutation(nqbits, 0);
+        //qbit is local if permutation[qbit] < maxlocalqbitnumber
+        for (int i = 0; i < nqbits; i++){
+            nextsee[i] = last_seen[i]+1;
+        }
+
+        int i = 0;
+        for (const auto& el: locals){
+            permutation[el] = i; //permutation is real to virtual
+            inversepermutation[i] = el; //virtual to real
+            i++;
+        }
+        for (const auto& el: fasts){
+            permutation[el] = i;
+            inversepermutation[i] = el;
+            i++;
+        }
+        for (const auto& el: slows){
+            permutation[el] = i;
+            inversepermutation[i] = el;
+            i++;
+        }
+
+        initial_permutation = permutation;
+
+        //i <-> j, permutation[i] <-> permutation[j]
+        //now we can definitely generate instructions!
+        vector<pair<int, int>> pairs;
+        set<int> alreadytaken;
+        int k = 0; //gate index
+        for (int i = 0; i < groups.size(); i++){
+            for (int l = 0; l < nqbits; l++){
+                nextsee[l] -= 1;
+            }
+            pairs = {};
+            alreadytaken = set<int>(groups[i].second.begin(), groups[i].second.end());
+            for (const auto& el: groups[i].second){ //let's check who we need to swap!
+                if (permutation[el] >= nqbits-slowqbits-fastqbits && permutation[el] < nqbits-slowqbits){
+                    //you are in the fast qbit cache! we need to swap, finding the best local qbit for that but eventually, the local one might have its place in slow so we will need to tackle this
+                    int worstqbit = -1;
+                    for (int j = 0; j < nqbits-slowqbits-fastqbits; j++){
+                        if (alreadytaken.find(inversepermutation[j]) != alreadytaken.end()){
+                            continue;
+                        }
+                        if (worstqbit == -1){
+                            worstqbit = inversepermutation[j];
+                            continue;
+                        }
+                        if (nextsee[inversepermutation[j]] > nextsee[worstqbit]){
+                            worstqbit = inversepermutation[j];
+                        }
+                    }
+
+                    if (worstqbit == -1){
+                        cout << "ALLOCATION FAILED: not enough localqbit available for a given group" << endl;
+                        return;
+                    }
+
+                    //beware that pairs take into account permutations that have already happened!
+                    
+                    pairs.push_back(make_pair(permutation[el], permutation[worstqbit]));
+                    //now let's refresh permutations
+                    swap(inversepermutation[permutation[el]], inversepermutation[permutation[worstqbit]]);
+                    swap(permutation[el], permutation[worstqbit]);
+                } else if (permutation[el] >= nqbits-slowqbits){
+                    //ho no, you are a slow qbits! there are only 2 options: going to the fast cache first then local, or local directly
+                    int worstqbit = -1;
+                    double weight;
+                    for (int j = 0; j < nqbits-slowqbits-fastqbits; j++){ //let's investigate the direct swap weight
+                        if (alreadytaken.find(inversepermutation[j]) != alreadytaken.end()){
+                            continue;
+                        }
+                        if (worstqbit == -1){
+                            worstqbit = inversepermutation[j];
+                            weight = nextsee[worstqbit];
+                            continue;
+                        }
+                        if (nextsee[inversepermutation[j]] > weight){
+                            worstqbit = inversepermutation[j];
+                            weight = nextsee[worstqbit];
+                        }
+                    }
+
+                    int bestlocal = worstqbit;
+                    weight = slowtime/weight; //we need to minimize this
+                    //cout << "starting phase" << endl;
+                    //cout << nextsee[worstqbit] << endl;
+
+                    for (int j = nqbits-slowqbits-fastqbits; j < nqbits-slowqbits; j++){ //let's investigate the cache
+                        if (alreadytaken.find(inversepermutation[j]) != alreadytaken.end()){
+                            continue;
+                        }
+                        if (worstqbit == -1){
+                            worstqbit = inversepermutation[j];
+                            weight = slowtime/(double)nextsee[worstqbit] + fasttime;
+                            continue;
+                        }
+                        //cout << nextsee[inversepermutation[j]] << endl;
+                        if ((slowtime/(double)nextsee[inversepermutation[j]]) + fasttime < weight){
+                            worstqbit = inversepermutation[j];
+                            weight = slowtime/(double)nextsee[worstqbit] + fasttime;
+                        }
+                    }
+                    //cout << "end phase" << endl;
+
+                    if (worstqbit == -1){
+                        cout << "ALLOCATION FAILED: not enough localqbit available for a given group" << endl;
+                        return;
+                    }
+                    //beware that pairs take into account permutations that have already happened!
+                    
+                    //let's swap the found qbit
+                    pairs.push_back(make_pair(permutation[el], permutation[worstqbit]));
+                    //now let's refresh permutations
+                    swap(inversepermutation[permutation[el]], inversepermutation[permutation[worstqbit]]);
+                    swap(permutation[el], permutation[worstqbit]);
+
+                    //if the found qbit was in cache, we also need to swap this new fast qbit with the best local candidate that we saved
+                    if (permutation[el] >= nqbits-fastqbits-slowqbits){
+                        pairs.push_back(make_pair(permutation[bestlocal], permutation[el]));
+                        //now let's refresh permutations
+                        swap(inversepermutation[permutation[bestlocal]], inversepermutation[permutation[el]]);
+                        swap(permutation[bestlocal], permutation[el]);
+                    }
+                }
+                nextsee[el] = INT32_MAX; //temporary, we will update right outside the loop
+            }
+            for (const auto& refreshpair: precompute[i]){
+                nextsee[refreshpair.first] = refreshpair.second;
+            }
+            if (pairs.size() != 0){
+                //swap operation needed!
+                vector<int> pairsset;
+                for (const auto& pair: pairs){
+                    pairsset.push_back(pair.first);
+                    pairsset.push_back(pair.second);
+                }
+                instructions.push_back(make_pair(0, pairsset));
+            }
+            instructions.push_back(make_pair(1, vector<int>()));
+            //we need to modify gates subjective qbits and of the group
+            set<int> temp;
+            for (const auto& el: groups[i].second){
+                temp.insert(permutation[el]);
+            }
+            groups[i].second = temp;
+            vector<int> temp2;
+            for (int l = k; l < groups[i].first; l++){
+                temp2.clear();
+                for (const auto& qbit: gate_set_ordered[l].qbits){
+                    temp2.push_back(permutation[qbit]);
+                }
+                gate_set_ordered[l].qbits = temp2;
+            }
+            k = groups[i].first;
+        }
+
+        final_inverse_permutation = inversepermutation;
     }
 };
