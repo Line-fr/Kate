@@ -718,7 +718,7 @@ private:
         set<int> newqbits = groups[groupind].second;
         //we will add some qbits to make use of a block. Ideally, we should have at least 10
         for (int l = 0; l < (nqbits - number_of_gpu_log2); l++){
-            if (newqbits.size() >= 10 || newqbits.size() == (nqbits - number_of_gpu_log2)) break;
+            if (newqbits.size() >= 8 || newqbits.size() == (nqbits - number_of_gpu_log2)) break;
             if (newqbits.find(l) != newqbits.end()) continue;
             newqbits.insert(l);
         }

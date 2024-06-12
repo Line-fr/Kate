@@ -855,7 +855,7 @@ public:
         }
         gate_set_ordered = newcircuit;
     }
-    void gateGrouping(int qbitgroupsize = 10){ // OPTIMISATION STEP 3 (optimal given a schedule)
+    void gateGrouping(int qbitgroupsize = 8){ // OPTIMISATION STEP 3 (optimal given a schedule)
         //this step is exclusively to reduce memory bandwidth pressure
         //qbitgroupsize should be set to what your registers per thread can tolere (minus some margin for the overhead registers)
         set<int> precompute;
