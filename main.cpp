@@ -2,10 +2,6 @@
 
 #include<iostream>
 
-#ifndef __NVCC__
-#include<hip/hip_runtime.h>
-#endif
-
 //#include "matrix.hpp"
 //#include "gate.hpp"
 #include "simulator.hpp"

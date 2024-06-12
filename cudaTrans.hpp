@@ -1,3 +1,7 @@
+#ifndef __NVCC__
+    #include<hip/hip_runtime.h>
+#endif
+
 #ifdef __NVCC__
     #define hipMemcpyDtoH(x, y, z) cudaMemcpy(x, y, z, cudaMemcpyDeviceToHost)
     #define hipMemcpyHtoD(x, y, z) cudaMemcpy(x, y, z, cudaMemcpyHostToDevice)
