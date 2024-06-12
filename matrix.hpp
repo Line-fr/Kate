@@ -100,6 +100,10 @@ class Matrix{ //square matrix only
 public:
     T* data = NULL;
     int n = 0;
+    Matrix(){
+        n = 0;
+        data = NULL;
+    }
     Matrix(int n){
         this->n = n;
         data = (T*)malloc(sizeof(T)*n*n);

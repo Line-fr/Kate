@@ -56,7 +56,7 @@ public:
     int optarg;
     double optarg2;
     Complex<T> optarg3;
-    Matrix<Complex<T>> densecontent = NULL;
+    Matrix<Complex<T>> densecontent;
     vector<int> qbits;
     Gate(int identifier, vector<int>& qbits, int optarg = 0, double optarg2 = 0, Complex<T> optarg3 = 0){
         this->identifier = identifier;
