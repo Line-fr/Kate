@@ -1,5 +1,11 @@
+#include "cudaTrans.hpp"
+
 #include<iostream>
+
+#ifndef __NVCC__
 #include<hip/hip_runtime.h>
+#endif
+
 //#include "matrix.hpp"
 //#include "gate.hpp"
 #include "simulator.hpp"
@@ -15,6 +21,42 @@ using std::chrono::duration;
 using std::chrono::milliseconds;
 
 using namespace std;
+
+QuantumCircuit<double> QulacsBench(int qbitsNum){
+    srand (time(NULL));
+    QuantumCircuit<double> circuit(qbitsNum);
+    vector<int> qbits;
+    for (int i = 0; i < qbitsNum; i++){
+        qbits = {i};
+        circuit.appendGate(Gate<double>(Hadamard, qbits, 0));
+        circuit.appendGate(Gate<double>(Hadamard, qbits, 0));
+    }
+    for (int i = 0; i < qbitsNum; i++){
+        qbits = {i, (i+1)%qbitsNum};
+        circuit.appendGate(Gate<double>(CNOT, qbits));
+    }
+
+    for (int a = 0; a < 9; a++){
+        for (int i = 0; i < qbitsNum; i++){
+            qbits = {i};
+            circuit.appendGate(Gate<double>(Hadamard, qbits, 0));
+            circuit.appendGate(Gate<double>(Hadamard, qbits, 0));
+            circuit.appendGate(Gate<double>(Hadamard, qbits, 0));
+        }
+        for (int i = 0; i < qbitsNum; i++){
+            qbits = {i, (i+1)%qbitsNum};
+            circuit.appendGate(Gate<double>(CNOT, qbits));
+        }
+    }
+
+    for (int i = 0; i < qbitsNum; i++){
+        qbits = {i};
+        circuit.appendGate(Gate<double>(Hadamard, qbits, 0));
+        circuit.appendGate(Gate<double>(Hadamard, qbits, 0));
+    }
+
+    return circuit;
+}
 
 template<typename T>
 QuantumCircuit<T> QFT(int qbitsNum){
@@ -122,47 +164,53 @@ void printGpuInfo(){
 int main(){
     printGpuInfo<Complex<double>>();
 
-    //quantumOPTTest();
-
-    int nqbits = 26;
-
-    QuantumCircuit<double> circuit = QFT<double>(nqbits);
-
-    circuit.compileOPT(5, 0.00001, 10, 0, 28);
-
-    circuit.print();
-
-    Simulator<double> sim(circuit, 1);
-
-    proba_state res = sim.execute(true);
-
-    res.print();
-
-    //res = sim.execute(res, true);
-
-    //res.print();
-
     /*
-    proba_state st(25);
-    auto t1 = high_resolution_clock::now();
-    auto t2 = high_resolution_clock::now();
-    auto circuit = randomCircuit<double>(25, 10);
-    double sum = 0;
-    for (int i = 0; i < 100; i++){
-        circuit = randomCircuit<double>(25, 10);
-        t1 = high_resolution_clock::now();
-        //circuit.compileOPT(5, 1, 10, 0);
-        Simulator<double>(circuit, 1).execute(st, true);
-        t2 = high_resolution_clock::now();
-        duration<double, std::milli> ms_double_compute = t2 - t1;
-        sum += ms_double_compute.count();
-    }
-    cout << "average time : " << sum/100 << " ms" << endl;*/
+    auto circuit = QulacsBench(6);
+    circuit.gateScheduling();
+    circuit.gateFusion(5, 0.00001);
+    circuit.gateGrouping(2);
 
-    //todo: implement measurment, implement QFT circuit with new gates
-    //better gate scheduling euristic!
-    //lastly, details optimizations
+    circuit.optimal_slow_fast_allocation(2, 1, 32, 1300);
+    //circuit.allocate(3);
+    //circuit.dual_phase_allocation(2, 1);
 
+    circuit.print();*/
+
+    ///*
+    int nqbits = 33;
+    //int slowqbits = 8;
+    int fastqbits = 3;
+
+    for (int slowqbits = 0; slowqbits < 20; slowqbits++){
+        auto circuit = QFT<double>(nqbits);
+        //slowqbits = nqbits/3;
+        //fastqbits = 3;
+        circuit.gateScheduling();
+        //circuit.gateFusion(5, 0.00001);
+        circuit.gateGrouping(2);
+
+        //circuit.dual_phase_allocation(fastqbits, slowqbits); //2 slow swaps with 18 total swaps
+        //circuit.allocate(slowqbits + fastqbits); //7 slow swap with 17 total swaps
+        circuit.slow_fast_allocation(fastqbits, slowqbits, 32, 1350);
+
+        //circuit.print();
+
+        int slowswap = 0;
+        int fastswap = 0;
+        for (const auto& instr: circuit.instructions){
+            if (instr.first == 0){
+                for (int i = 0; i+1 < instr.second.size(); i+= 2){
+                    int first = instr.second[i];
+                    int second = instr.second[i+1];
+                    if (first >= nqbits-slowqbits) {slowswap++;continue;}
+                    if (second >= nqbits-slowqbits) {slowswap++;continue;}
+                    fastswap++;
+                }
+            }
+        }
+
+        cout << "fast swap : " << fastswap << "; slow swap : " << slowswap << "; total swap : " << fastswap+slowswap << endl; 
+    }//*/
     cout << "done" << endl;
 
     return 0;

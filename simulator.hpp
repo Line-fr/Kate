@@ -4,9 +4,6 @@
 #include<thread>
 #define THREADNUMBER 64
 
-#define USE_PEER_NON_UNIFIED 1
-#include<hip/hip_runtime.h>
-
 using std::chrono::high_resolution_clock;
 using std::chrono::duration_cast;
 using std::chrono::duration;
@@ -540,7 +537,7 @@ private:
             //let's compute for buffer 1
             size_t work_per_thread = ((1llu << localqbits)/usable_threads);
             for (int j = 0; j < usable_threads; j++){
-                threads.emplace_back(threadef, threadres+2*localqbits*j, buffer1, (size_t)j*work_per_thread, (size_t)min(1llu << localqbits, (j+1)*work_per_thread));
+                threads.emplace_back(threadef, threadres+2*localqbits*j, buffer1, (size_t)j*work_per_thread, (size_t)min(1llu << localqbits, (unsigned long long)(j+1)*work_per_thread));
             }
 
             for (auto& el: threads){
@@ -622,7 +619,7 @@ private:
     void swapqbitBufferSwap(int q1, int q2){
         q2 -= nqbits - number_of_gpu_log2;
         size_t data_to_transfer = (1llu << (nqbits - number_of_gpu_log2 - 1));
-        size_t chunk_size = min((1llu << swapBufferSizeLog2), data_to_transfer);
+        size_t chunk_size = min((1llu << swapBufferSizeLog2), (unsigned long long)data_to_transfer);
         size_t mask = (1llu << q2) - 1;
         size_t mask2 = (1llu << (number_of_gpu_log2 - 1)) - 1 - mask;
 
@@ -632,9 +629,9 @@ private:
                 size_t baseIndex = (i&mask) + ((i&mask2) << 1);
                 size_t otherIndex = baseIndex + (1llu << q2);
                 //we will ask gpus to swap
-                int threadnumber = min(1024llu, (chunk_size));
-                int blocknumber = min((1llu << 12), (chunk_size)/threadnumber);
-                int work_per_thread = max(1llu, chunk_size/threadnumber/blocknumber);
+                int threadnumber = min(1024llu, (unsigned long long)(chunk_size));
+                int blocknumber = min((1llu << 12), (unsigned long long)(chunk_size)/threadnumber);
+                int work_per_thread = max(1llu, (unsigned long long)chunk_size/threadnumber/blocknumber);
                 GPU_CHECK(hipSetDevice(baseIndex));
                 swapqbitKernelIndirectAccessEXTRACT<<<dim3(blocknumber), dim3(threadnumber), 0, 0>>>((nqbits - number_of_gpu_log2), q1, 1llu, gpu_qbits_states[baseIndex], swapBuffer1[baseIndex], current, work_per_thread);
                 GPU_CHECK(hipMemcpyPeer(swapBuffer2[otherIndex], otherIndex, swapBuffer1[baseIndex], baseIndex, sizeof(Complex<T>)*chunk_size));
@@ -650,9 +647,9 @@ private:
                 size_t baseIndex = (i&mask) + ((i&mask2) << 1);
                 size_t otherIndex = baseIndex + (1llu << q2);
                 //we will ask gpus to swap
-                int threadnumber = min(1024llu, (chunk_size));
-                int blocknumber = min((1llu << 12), (chunk_size)/threadnumber);
-                int work_per_thread = max(1llu, chunk_size/threadnumber/blocknumber);
+                int threadnumber = min(1024llu, (unsigned long long)(chunk_size));
+                int blocknumber = min((1llu << 12), (unsigned long long)(chunk_size)/threadnumber);
+                int work_per_thread = max(1llu, (unsigned long long)chunk_size/threadnumber/blocknumber);
                 GPU_CHECK(hipSetDevice(baseIndex));
                 swapqbitKernelIndirectAccessIMPORT<<<dim3(blocknumber), dim3(threadnumber), 0, 0>>>((nqbits - number_of_gpu_log2), q1, 1llu, gpu_qbits_states[baseIndex], swapBuffer2[baseIndex], current, work_per_thread);
                 GPU_CHECK(hipSetDevice(otherIndex));
@@ -666,7 +663,7 @@ private:
     void swapqbitIndirectBufferSwap(int q1, int q2){
         q2 -= nqbits - number_of_gpu_log2;
         size_t data_to_transfer = (1llu << (nqbits - number_of_gpu_log2 - 1));
-        size_t chunk_size = min((1llu << swapBufferSizeLog2), data_to_transfer);
+        size_t chunk_size = min((size_t)(1llu << swapBufferSizeLog2), data_to_transfer);
         size_t mask = (1llu << q2) - 1;
         size_t mask2 = (1llu << (number_of_gpu_log2 - 1)) - 1 - mask;
         for (size_t current = 0; current < data_to_transfer; current += chunk_size){
@@ -675,9 +672,9 @@ private:
                 size_t baseIndex = (i&mask) + ((i&mask2) << 1);
                 size_t otherIndex = baseIndex + (1llu << q2);
                 //we will ask gpus to swap
-                int threadnumber = min(1024llu, (chunk_size));
-                int blocknumber = min((1llu << 12), (chunk_size)/threadnumber);
-                int work_per_thread = max(1llu, chunk_size/threadnumber/blocknumber);
+                int threadnumber = min(1024llu, (unsigned long long)(chunk_size));
+                int blocknumber = min((1llu << 12), (unsigned long long)(chunk_size)/threadnumber);
+                int work_per_thread = max(1llu, (unsigned long long)chunk_size/threadnumber/blocknumber);
                 GPU_CHECK(hipSetDevice(baseIndex));
                 swapqbitKernelIndirectAccessEXTRACT<<<dim3(blocknumber), dim3(threadnumber), 0, 0>>>((nqbits - number_of_gpu_log2), q1, 1llu, gpu_qbits_states[baseIndex], swapBuffer1[baseIndex], current, work_per_thread);
                 GPU_CHECK(hipMemcpyDtoHAsync(cswapBuffer[baseIndex], (hipDeviceptr_t)swapBuffer1[baseIndex], sizeof(Complex<T>)*chunk_size, 0));
@@ -693,9 +690,9 @@ private:
                 size_t baseIndex = (i&mask) + ((i&mask2) << 1);
                 size_t otherIndex = baseIndex + (1llu << q2);
                 //we will ask gpus to swap
-                int threadnumber = min(1024llu, (chunk_size));
-                int blocknumber = min((1llu << 12), (chunk_size)/threadnumber);
-                int work_per_thread = max(1llu, chunk_size/threadnumber/blocknumber);
+                int threadnumber = min(1024llu, (unsigned long long)(chunk_size));
+                int blocknumber = min((1llu << 12), (unsigned long long)(chunk_size)/threadnumber);
+                int work_per_thread = max(1llu, (unsigned long long)chunk_size/threadnumber/blocknumber);
                 GPU_CHECK(hipSetDevice(baseIndex));
                 GPU_CHECK(hipMemcpyHtoDAsync((hipDeviceptr_t)swapBuffer2[baseIndex], cswapBuffer[otherIndex], sizeof(Complex<T>)*chunk_size, 0));
                 swapqbitKernelIndirectAccessIMPORT<<<dim3(blocknumber), dim3(threadnumber), 0, 0>>>((nqbits - number_of_gpu_log2), q1, 1llu, gpu_qbits_states[baseIndex], swapBuffer2[baseIndex], current, work_per_thread);
