@@ -175,9 +175,6 @@ __global__ void executeGroupKernelSharedState(int nqbits, Complex<T>* qbitsstate
         bit_to_groupbitnumber[groupqbits[i]] = i;
     }
 
-    size_t groupel = blockIdx.x;
-    size_t initline = threadIdx.x;
-
     extern __shared__ Complex<T> qbitsstateANDmatrixstate[]; //must be of size sizeof(T)*2**nbqbits + sharedMemMatrixSize
     Complex<T>* qbitsstateshared = qbitsstateANDmatrixstate; //size 2**(groupnqbits)
     Complex<T>* matrixsharedstorage = qbitsstateANDmatrixstate + (1llu << groupnqbits); //size sharedMemMatrixSize
@@ -190,53 +187,60 @@ __global__ void executeGroupKernelSharedState(int nqbits, Complex<T>* qbitsstate
     }
     mask_group[groupnqbits] = (1llu << (nqbits - groupnqbits)) - 1 - cumulative;
 
+    size_t groupnumber = (1llu << (nqbits - groupnqbits));
+    size_t groupsperblock = groupnumber/gridDim.x;
+    for (size_t groupel = blockIdx.x*groupsperblock; groupel < (blockIdx.x +1)*groupsperblock; groupel++){
+        size_t initline = threadIdx.x;
 
-    size_t groupbaseind = 0;
-    for (int i = 0; i <= groupnqbits; i++){
-        groupbaseind += ((groupel&mask_group[i]) << i);
-    } // XXXX-0-XXXXX-0-XX... 0 for all qbit group of the group
-    //initialization
-    int work_per_thread0 = (1llu << groupnqbits)/blockDim.x;
-    if (work_per_thread0 == 0 && threadIdx.x < (1llu << groupnqbits)){
-        size_t finalbaseind = groupbaseind;
-        for (int i = 0; i < groupnqbits; i++){
-            finalbaseind += ((initline >> i)%2) << groupqbits[i];
+
+        size_t groupbaseind = 0;
+        for (int i = 0; i <= groupnqbits; i++){
+            groupbaseind += ((groupel&mask_group[i]) << i);
+        } // XXXX-0-XXXXX-0-XX... 0 for all qbit group of the group
+        //initialization
+        int work_per_thread0 = (1llu << groupnqbits)/blockDim.x;
+        if (work_per_thread0 == 0 && threadIdx.x < (1llu << groupnqbits)){
+            size_t finalbaseind = groupbaseind;
+            for (int i = 0; i < groupnqbits; i++){
+                finalbaseind += ((initline >> i)%2) << groupqbits[i];
+            }
+            qbitsstateshared[initline] = qbitsstate[finalbaseind];
         }
-        qbitsstateshared[initline] = qbitsstate[finalbaseind];
-    }
     
-    for (int line = initline*work_per_thread0; line < (initline+1)*work_per_thread0; line++){
-        size_t finalbaseind = groupbaseind;
-        for (int i = 0; i < groupnqbits; i++){
-            finalbaseind += ((line >> i)%2) << groupqbits[i];
-        }
+        for (int line = initline*work_per_thread0; line < (initline+1)*work_per_thread0; line++){
+            size_t finalbaseind = groupbaseind;
+            for (int i = 0; i < groupnqbits; i++){
+                finalbaseind += ((line >> i)%2) << groupqbits[i];
+            }
         
-        qbitsstateshared[line] = qbitsstate[finalbaseind];
-        //printf("value at line: %i is %f with finalbaseind : %i\n", line, qbitsstateshared[line].a, (int)finalbaseind);
-    }
+            qbitsstateshared[line] = qbitsstate[finalbaseind];
+            //printf("value at line: %i is %f with finalbaseind : %i\n", line, qbitsstateshared[line].a, (int)finalbaseind);
+        }
 
-    __syncthreads(); //everyone in the block has fast access to the whole group state, now let s explore the circuit!
+        __syncthreads(); //everyone in the block has fast access to the whole group state, now let s explore the circuit!
 
-    for (int gateid = 0; gateid < gatenumber; gateid++){
-        gates[gateid].compute(groupnqbits, qbitsstateshared, bit_to_groupbitnumber, matrixsharedstorage, sharedMemMatrixSize);
-        __syncthreads();
+        for (int gateid = 0; gateid < gatenumber; gateid++){
+            gates[gateid].compute(groupnqbits, qbitsstateshared, bit_to_groupbitnumber, matrixsharedstorage, sharedMemMatrixSize);
+            __syncthreads();
          
-    }
-
-    if (work_per_thread0 == 0 && threadIdx.x < (1llu << groupnqbits)){
-        size_t finalbaseind = groupbaseind;
-        for (int i = 0; i < groupnqbits; i++){
-            finalbaseind += ((initline >> i)%2) << groupqbits[i];
         }
 
-        qbitsstate[finalbaseind] = qbitsstateshared[initline];
-    }
-    for (int line = initline*work_per_thread0; line < (initline+1)*work_per_thread0; line++){
-        size_t finalbaseind = groupbaseind;
-        for (int i = 0; i < groupnqbits; i++){
-            finalbaseind += ((line >> i)%2) << groupqbits[i];
+        if (work_per_thread0 == 0 && threadIdx.x < (1llu << groupnqbits)){
+            size_t finalbaseind = groupbaseind;
+            for (int i = 0; i < groupnqbits; i++){
+                finalbaseind += ((initline >> i)%2) << groupqbits[i];
+            }
+
+            qbitsstate[finalbaseind] = qbitsstateshared[initline];
         }
-        qbitsstate[finalbaseind] = qbitsstateshared[line];
+        for (int line = initline*work_per_thread0; line < (initline+1)*work_per_thread0; line++){
+            size_t finalbaseind = groupbaseind;
+            for (int i = 0; i < groupnqbits; i++){
+                finalbaseind += ((line >> i)%2) << groupqbits[i];
+            }
+            qbitsstate[finalbaseind] = qbitsstateshared[line];
+        }
+
     }
 
     //__syncthreads();
