@@ -3,9 +3,13 @@ for now, there is support for multi-GPU but only on 1 node (no MPI)
 Speed needs to be measured but shows really good results, especially using special optimizations for preprocessing circuits.
 
 **TO COMPILE**
+
 for HIP
+
     hipcc main.cpp
+
 for CUDA (hipcc works as well if installed)
+
     nvcc -x cu main.cpp
 
 Current configuration: It runs a QFT over 24 qbits
