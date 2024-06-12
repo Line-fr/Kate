@@ -8,3 +8,5 @@
 *.pdb
 a.exe
 a.out
+a.exp
+a.lib
