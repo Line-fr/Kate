@@ -1,3 +1,5 @@
+#include "cudaTrans.hpp"
+
 #include<stdlib.h>
 #include<iostream>
 #include<math.h>

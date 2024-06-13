@@ -1,5 +1,3 @@
-#include "cudaTrans.hpp"
-
 #include<iostream>
 
 //#include "matrix.hpp"
