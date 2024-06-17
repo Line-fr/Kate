@@ -1,5 +1,5 @@
 #include "preprocessor.hpp"
-#include "QuantumCircuit.hpp"
+#include "Circuit.hpp"
 #include "simulator.hpp"
 #include "BenchCircuits.hpp"
 #include "DeviceInfo.hpp"
