@@ -12,6 +12,8 @@
     #define hipMemcpyHtoD(x, y, z) cudaMemcpy(x, y, z, cudaMemcpyHostToDevice)
     #define hipMemcpyDtoHAsync(x, y, z, w) cudaMemcpyAsync(x, y, z, cudaMemcpyDeviceToHost, w)
     #define hipMemcpyHtoDAsync(x, y, z, w) cudaMemcpyAsync(x, y, z, cudaMemcpyHostToDevice, w)
+    #define hipMemcpyPeer cudaMemcpyPeer
+    #define hipMemcpyPeerAsync cudaMemcpyPeerAsync
     #define hipMalloc cudaMalloc
     #define hipFree cudaFree
     #define hipDeviceSynchronize cudaDeviceSynchronize

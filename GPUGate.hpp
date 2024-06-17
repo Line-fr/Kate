@@ -4,19 +4,18 @@
 #include "preprocessor.hpp"
 #include "basic_host_types.hpp"
 
-template<typename T>
 class GPUGate{
 public:
     int identifier = -1;
     int optarg;
     double optarg2;
-    Complex<T> optarg3;
-    GPUMatrix<Complex<T>> densecontent;
+    Complex optarg3;
+    GPUMatrix<Complex> densecontent;
     int* qbits = NULL;
     int* ordered_qbits = NULL;
     int nbqbits = 0;
     //gates[gateid], nqbits, blockDim.x, threadIdx.x, blockIdx.x, qbitsstate, sharedMemMatrixSize, matrixsharedstorage, bit_to_groupbitnumber
-    __device__ void compute(int nqbits, Complex<T>* qbitsstateshared, int* bit_to_groupbitnumber, Complex<T>* matrixsharedstorage, int sharedMemMatrixSize){
+    __device__ void compute(int nqbits, Complex* qbitsstateshared, int* bit_to_groupbitnumber, Complex* matrixsharedstorage, int sharedMemMatrixSize){
         size_t initline = threadIdx.x;
         size_t beg, end;
         size_t begmat, endmat;
@@ -71,7 +70,7 @@ public:
                     size_t index10 = (1llu << lq1) + (line&mask0) + ((line&mask1) << (1)) + ((line&mask2) << (2)); //XXXXX-lq1(1)-XXXXX-lq0(0)-XXXXX
                     size_t index11 = index10 + (1llu << lq0);
                     double temp = ((double)2*PI)/(1llu << (optarg));
-                    qbitsstateshared[index11] *= Complex<T>(cos(temp), sin(temp));
+                    qbitsstateshared[index11] *= Complex(cos(temp), sin(temp));
                 }
                 break;
             }
@@ -147,8 +146,8 @@ public:
                     endmat = (1llu << gateqbits);
                 }
                 //let's see if we can put this matrix in shared memory!
-                Complex<T>* matrixdata;
-                if ((sharedMemMatrixSize >= sizeof(Complex<T>)*(1llu << (2*gateqbits)))){
+                Complex* matrixdata;
+                if ((sharedMemMatrixSize >= sizeof(Complex)*(1llu << (2*gateqbits)))){
                     if (blockDim.x > (1llu << (2*gateqbits))){
                         if (initline < (1llu << (2*gateqbits))) matrixsharedstorage[initline] = densecontent.data[initline];
                     } else {
@@ -182,7 +181,7 @@ public:
                         for (int i = 0; i < gateqbits; i++){
                             lineind += ((matline >> i)%2) << bit_to_groupbitnumber[qbits[i]];
                         }
-                        Complex<T> sum = 0;
+                        Complex sum = 0;
                         for (size_t matcol = 0; matcol < (1llu << gateqbits); matcol++){
 
                             tempind = baseind;
@@ -201,14 +200,13 @@ public:
     }
 };
 
-template<typename T>
-GPUGate<T> createGPUGate(const Gate<T>& other){
-    GPUGate<T> res;
+GPUGate createGPUGate(const Gate& other){
+    GPUGate res;
     res.identifier = other.identifier;
     res.optarg = other.optarg;
     res.optarg2 = other.optarg2;
     res.optarg3 = other.optarg3;
-    res.densecontent = createGPUMatrix<Complex<T>>(other.densecontent);
+    res.densecontent = createGPUMatrix<Complex>(other.densecontent);
     res.nbqbits = other.qbits.size();
     GPU_CHECK(hipMalloc(&res.qbits, sizeof(int)*res.nbqbits));
     GPU_CHECK(hipMalloc(&res.ordered_qbits, sizeof(int)*res.nbqbits));
@@ -233,12 +231,11 @@ void freecallback(hipStream_t stream, hipError_t err, void* data){
     free(data);
 }
 
-template<typename T>
-GPUGate<T> createGPUGateAsync(const Gate<T>& other){
-    GPUGate<T> res;
+GPUGate createGPUGateAsync(const Gate& other){
+    GPUGate res;
     res.identifier = other.identifier;
     res.optarg = other.optarg;
-    res.densecontent = createGPUMatrixAsync<Complex<T>>(other.densecontent);
+    res.densecontent = createGPUMatrixAsync<Complex>(other.densecontent);
     res.nbqbits = other.qbits.size();
     GPU_CHECK(hipMalloc(&res.qbits, sizeof(int)*res.nbqbits));
     GPU_CHECK(hipMalloc(&res.ordered_qbits, sizeof(int)*res.nbqbits));
@@ -259,12 +256,11 @@ GPUGate<T> createGPUGateAsync(const Gate<T>& other){
     return res;
 }
 
-template<typename T>
-GPUGate<T> createGPUGate(int n, vector<int> qbits){
-    GPUGate<T> res;
+GPUGate createGPUGate(int n, vector<int> qbits){
+    GPUGate res;
     res.identifier = 0;
     res.optarg = 0;
-    res.densecontent = createGPUMatrix<Complex<T>>((1llu << n));
+    res.densecontent = createGPUMatrix<Complex>((1llu << n));
     res.nbqbits = qbits.size();
     GPU_CHECK(hipMalloc(&res.qbits, sizeof(int)*res.nbqbits));
     GPU_CHECK(hipMalloc(&res.ordered_qbits, sizeof(int)*res.nbqbits));
@@ -285,11 +281,24 @@ GPUGate<T> createGPUGate(int n, vector<int> qbits){
     return res;
 }
 
-template<typename T>
-void destroyGPUGate(const GPUGate<T>& el){
+void destroyGPUGate(const GPUGate& el){
     GPU_CHECK(hipFree(el.qbits));
     GPU_CHECK(hipFree(el.ordered_qbits));
     destroyGPUMatrix(el.densecontent);
+}
+
+Gate createGatefromGPU(const GPUGate& other){
+    Gate res(-1, vector<int>({}));
+    res.identifier = other.identifier;
+    res.densecontent = Matrix<Complex>(other.densecontent);
+    res.qbits.clear();
+    int* temp = (int*)malloc(sizeof(int)*other.nbqbits);
+    GPU_CHECK(hipMemcpyDtoH(temp, (hipDeviceptr_t)other.qbits, sizeof(int)*other.nbqbits));
+    for (int i = 0; i < other.nbqbits; i++){
+        res.qbits.push_back(temp[i]);
+    }
+    free(temp);
+    return res;
 }
 
 #endif

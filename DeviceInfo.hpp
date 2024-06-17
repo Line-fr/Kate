@@ -5,7 +5,6 @@ __global__ void testkernel(){
     printf("gpu kernel works\n");
 }
 
-template<typename T>
 void printGpuInfo(){
     int count, device;
     hipDeviceProp_t devattr;
@@ -26,10 +25,9 @@ void printGpuInfo(){
 	cout << "current GPU: " << endl;
 	cout << devattr.name << endl;
     cout << endl;
-    cout << "Global memory: " << devattr.totalGlobalMem << " (" << (int)log2(devattr.totalGlobalMem/sizeof(T)) << " qbits)" << endl;
-    cout << "Shared memory per block : " << devattr.sharedMemPerBlock << " (" << (int)log2(devattr.sharedMemPerBlock/sizeof(T))/2 << " max qbits dense gate execution)" << endl;
-    cout << "Registers per blocks : " << devattr.regsPerBlock << " (" << (int)log2(devattr.regsPerBlock/GPUTHREADSNUM) << " max qbits group)" << endl;
-	cout << endl;
+    cout << "Global memory: " << devattr.totalGlobalMem << " (" << (int)log2(devattr.totalGlobalMem/sizeof(Complex)) << " qbits)" << endl;
+    cout << "Shared memory per block : " << devattr.sharedMemPerBlock << " (" << (int)log2(devattr.sharedMemPerBlock/sizeof(Complex)) << " max qbits group execution)" << endl;
+    cout << endl;
     testkernel<<<dim3(1), dim3(1)>>>();
     GPU_CHECK(hipDeviceSynchronize());
 }

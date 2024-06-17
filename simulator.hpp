@@ -1,13 +1,11 @@
-#include "gate.hpp"
-#include<chrono>
-#include<iomanip>
-#include<thread>
-#define THREADNUMBER 64
+#ifndef SIMULATORDONE
+#define SIMULATORDONE
 
-using std::chrono::high_resolution_clock;
-using std::chrono::duration_cast;
-using std::chrono::duration;
-using std::chrono::milliseconds;
+#include "preprocessor.hpp"
+#include "QuantumCircuit.hpp"
+#include "GPUQuantumCircuit.hpp"
+#include "basic_host_types.hpp"
+#include "Circuit.hpp"
 
 class proba_state{ //non entangled
 public:
@@ -28,14 +26,12 @@ public:
     }
 };
 
-template<typename T>
-__global__ void printKernel(Complex<T>* mem){
+__global__ void printKernel(Complex* mem){
     size_t tid = threadIdx.x + blockIdx.x*blockDim.x;
-    printf("at %i there is %f\n", tid, mem[tid].a);
+    printf("at %llu there is %f\n", tid, mem[tid].a);
 }
 
-template<typename T>
-__global__ void initialize_state(int nqbits, Complex<T>* memory, int indexfor1){
+__global__ void initialize_state(int nqbits, Complex* memory, int indexfor1){
     size_t tid = threadIdx.x + blockIdx.x*blockDim.x;
     int work_per_thread = (1llu << nqbits)/blockDim.x/gridDim.x;
 
@@ -44,12 +40,11 @@ __global__ void initialize_state(int nqbits, Complex<T>* memory, int indexfor1){
     }
 }
 
-template<typename T>
-__global__ void initialize_probastate(int nqbits, Complex<T>* memory, Complex<T>* qbitsangles, Complex<T> offset){
+__global__ void initialize_probastate(int nqbits, Complex* memory, Complex* qbitsangles, Complex offset){
     size_t tid = threadIdx.x + blockIdx.x*blockDim.x;
     int work_per_thread = (1llu << nqbits)/blockDim.x/gridDim.x;
 
-    Complex<T> temp;
+    Complex temp;
     for (size_t i = tid*work_per_thread; i < (tid+1)*work_per_thread; i++){
         temp = offset;
         for (int j = 0; j < nqbits; j++){
@@ -59,14 +54,13 @@ __global__ void initialize_probastate(int nqbits, Complex<T>* memory, Complex<T>
     }
 }
 
-template<typename T>
-__global__ void measureKernel(int nqbits, Complex<T>* qbitsstate, Complex<T>* allresultsend){
+__global__ void measureKernel(int nqbits, Complex* qbitsstate, Complex* allresultsend){
     size_t tid = threadIdx.x + blockIdx.x*blockDim.x;
     //int work_per_block = (1llu << nqbits)/gridDim.x;
     int work_per_thread = (1llu << nqbits)/blockDim.x/gridDim.x;
     //we need 2*nqbits complex to save our results
     allresultsend += (2*nqbits)*tid;
-    Complex<T> allresults[64]; //all 0 then all 1
+    Complex allresults[64]; //all 0 then all 1
     for (int i = 0; i < 2*nqbits; i++){
         allresults[i].a = 0.;
         allresults[i].b = 0.;
@@ -83,14 +77,13 @@ __global__ void measureKernel(int nqbits, Complex<T>* qbitsstate, Complex<T>* al
     }
 }
 
-template<typename T>
-__global__ void measureKernelqbit(int nqbits, Complex<T>* qbitsstate, Complex<T>* allresultsend, int qbit){
+__global__ void measureKernelqbit(int nqbits, Complex* qbitsstate, Complex* allresultsend, int qbit){
     size_t tid = threadIdx.x + blockIdx.x*blockDim.x;
     //int work_per_block = (1llu << nqbits)/gridDim.x;
     int work_per_thread = (1llu << nqbits)/blockDim.x/gridDim.x;
     
-    extern __shared__ Complex<T> res[];
-    Complex<T>* myres = res + threadIdx.x*2;
+    extern __shared__ Complex res[];
+    Complex* myres = res + threadIdx.x*2;
 
     for (int i = tid*work_per_thread; i < (tid+1)*work_per_thread; i++){
         myres[(i >> qbit)%2] += qbitsstate[i];
@@ -114,8 +107,7 @@ __global__ void measureKernelqbit(int nqbits, Complex<T>* qbitsstate, Complex<T>
     }
 }
 
-template<typename T>
-__global__ void initialize_state0(int nqbits, Complex<T>* memory){
+__global__ void initialize_state0(int nqbits, Complex* memory){
     size_t tid = threadIdx.x + blockIdx.x*blockDim.x;
     int work_per_thread = (1llu << nqbits)/blockDim.x/gridDim.x;
 
@@ -124,8 +116,7 @@ __global__ void initialize_state0(int nqbits, Complex<T>* memory){
     }
 }
 
-template<typename T> 
-__global__ void swapqbitKernelDirectAcess(int nqbits, int localq, Complex<T>* memory0, Complex<T>* memory1, int baseindex, int values_per_thread){
+__global__ void swapqbitKernelDirectAcess(int nqbits, int localq, Complex* memory0, Complex* memory1, int baseindex, int values_per_thread){
     size_t tid = threadIdx.x + blockIdx.x*blockDim.x;
 
     size_t mask = (1llu << localq) - 1;
@@ -134,14 +125,13 @@ __global__ void swapqbitKernelDirectAcess(int nqbits, int localq, Complex<T>* me
     for (size_t i = tid*values_per_thread; i < (tid+1)*(values_per_thread); i++){
         size_t baseIndex = ((i+baseindex)&mask) + (((i+baseindex)&mask2) << 1);
 
-        Complex<T> temp = memory1[baseIndex]; //we want the 0 of device which has the global 1;
+        Complex temp = memory1[baseIndex]; //we want the 0 of device which has the global 1;
         memory1[baseIndex] = memory0[baseIndex + (1llu << localq)]; //then we paste the 1 of the device which has the global 0
         memory0[baseIndex + (1llu << localq)] = temp;
     }
 }
 
-template<typename T>
-__global__ void swapqbitKernelIndirectAccessEXTRACT(int nqbits, int localq, size_t qbitvalue, Complex<T>* mymemory, Complex<T>* buffer, int baseindex, int values_per_thread){
+__global__ void swapqbitKernelIndirectAccessEXTRACT(int nqbits, int localq, size_t qbitvalue, Complex* mymemory, Complex* buffer, int baseindex, int values_per_thread){
     size_t tid = threadIdx.x + blockIdx.x*blockDim.x;
 
     size_t mask = (1llu << localq) - 1;
@@ -154,8 +144,7 @@ __global__ void swapqbitKernelIndirectAccessEXTRACT(int nqbits, int localq, size
     }
 }
 
-template<typename T>
-__global__ void swapqbitKernelIndirectAccessIMPORT(int nqbits, int localq, size_t qbitvalue, Complex<T>* mymemory, Complex<T>* buffer, int baseindex, int values_per_thread){
+__global__ void swapqbitKernelIndirectAccessIMPORT(int nqbits, int localq, size_t qbitvalue, Complex* mymemory, Complex* buffer, int baseindex, int values_per_thread){
     size_t tid = threadIdx.x + blockIdx.x*blockDim.x;
 
     size_t mask = (1llu << localq) - 1;
@@ -168,16 +157,15 @@ __global__ void swapqbitKernelIndirectAccessIMPORT(int nqbits, int localq, size_
     }
 }
 
-template<typename T>
-__global__ void executeGroupKernelSharedState(int nqbits, Complex<T>* qbitsstate, int groupnqbits, int* groupqbits, GPUGate<T>* gates, int gatenumber, int sharedMemMatrixSize){
+__global__ void executeGroupKernelSharedState(int nqbits, Complex* qbitsstate, int groupnqbits, int* groupqbits, GPUGate* gates, int gatenumber, int sharedMemMatrixSize){
     int bit_to_groupbitnumber[64];
     for (int i = 0; i < groupnqbits; i++){
         bit_to_groupbitnumber[groupqbits[i]] = i;
     }
 
-    extern __shared__ Complex<T> qbitsstateANDmatrixstate[]; //must be of size sizeof(T)*2**nbqbits + sharedMemMatrixSize
-    Complex<T>* qbitsstateshared = qbitsstateANDmatrixstate; //size 2**(groupnqbits)
-    Complex<T>* matrixsharedstorage = qbitsstateANDmatrixstate + (1llu << groupnqbits); //size sharedMemMatrixSize
+    extern __shared__ Complex qbitsstateANDmatrixstate[]; //must be of size sizeof(T)*2**nbqbits + sharedMemMatrixSize
+    Complex* qbitsstateshared = qbitsstateANDmatrixstate; //size 2**(groupnqbits)
+    Complex* matrixsharedstorage = qbitsstateANDmatrixstate + (1llu << groupnqbits); //size sharedMemMatrixSize
 
     size_t mask_group[64];
     size_t cumulative = 0;
@@ -246,7 +234,6 @@ __global__ void executeGroupKernelSharedState(int nqbits, Complex<T>* qbitsstate
     //__syncthreads();
 }
 
-template<typename T>
 class Simulator{
 public:
     //copy from quantum circuit but with the gpu version
@@ -254,20 +241,20 @@ public:
     vector<int> initial_permutation;
     vector<int> final_inverse_permutation;
     vector<pair<int, vector<int>>> instructions; //contains either 0 for swap and some qbits (they go by pair) or 1 for compute (just compute next group available)
-    vector<Gate<T>> gate_set_ordered;
+    vector<Gate> gate_set_ordered;
     int nqbits = 0;
 
     int number_of_gpu;
     int number_of_gpu_log2;
-    Complex<T>** gpu_qbits_states;
-    GPUQuantumCircuit<T>* gpuc; //one for each device
+    Complex** gpu_qbits_states;
+    GPUQuantumCircuit* gpuc; //one for each device
 
-    Complex<T>** swapBuffer1 = NULL;
-    Complex<T>** swapBuffer2 = NULL;
-    Complex<T>** cswapBuffer = NULL;
+    Complex** swapBuffer1 = NULL;
+    Complex** swapBuffer2 = NULL;
+    Complex** cswapBuffer = NULL;
     int swapBufferSizeLog2;
 
-    Simulator(QuantumCircuit<T> mycircuit, int number_of_gpu, int swapBufferSizeLog2 = 24){
+    Simulator(QuantumCircuit mycircuit, int number_of_gpu, int swapBufferSizeLog2 = 24){
         if (mycircuit.instructions.size() == 0){
             cout << "warning: the simulator has been input a circuit that is not compiled. I will compile it naively now" << endl;
             mycircuit.compileDefault((int)log2(number_of_gpu), mycircuit.nqbits - (int)log2(number_of_gpu));
@@ -281,19 +268,19 @@ public:
 
         number_of_gpu_log2 = (int)log2(number_of_gpu);
         this->number_of_gpu = (1llu << number_of_gpu_log2);
-        gpu_qbits_states = (Complex<T>**)malloc(sizeof(Complex<T>*)*number_of_gpu);
-        if (number_of_gpu > 1) swapBuffer1 = (Complex<T>**)malloc(sizeof(Complex<T>*)*number_of_gpu);
-        if (number_of_gpu > 1) swapBuffer2 = (Complex<T>**)malloc(sizeof(Complex<T>*)*number_of_gpu);
-        if (number_of_gpu > 1) cswapBuffer = (Complex<T>**)malloc(sizeof(Complex<T>*)*number_of_gpu);
+        gpu_qbits_states = (Complex**)malloc(sizeof(Complex*)*number_of_gpu);
+        if (number_of_gpu > 1) swapBuffer1 = (Complex**)malloc(sizeof(Complex*)*number_of_gpu);
+        if (number_of_gpu > 1) swapBuffer2 = (Complex**)malloc(sizeof(Complex*)*number_of_gpu);
+        if (number_of_gpu > 1) cswapBuffer = (Complex**)malloc(sizeof(Complex*)*number_of_gpu);
         
         this->swapBufferSizeLog2 = swapBufferSizeLog2;
-        gpuc = (GPUQuantumCircuit<T>*)malloc(sizeof(GPUQuantumCircuit<T>)*number_of_gpu);
+        gpuc = (GPUQuantumCircuit*)malloc(sizeof(GPUQuantumCircuit)*number_of_gpu);
         for (int i = 0; i < number_of_gpu; i++){
-            if (number_of_gpu > 1) cswapBuffer[i] = (Complex<T>*)malloc(sizeof(Complex<T>)*(1llu << swapBufferSizeLog2));
+            if (number_of_gpu > 1) cswapBuffer[i] = (Complex*)malloc(sizeof(Complex)*(1llu << swapBufferSizeLog2));
             GPU_CHECK(hipSetDevice(i));
-            GPU_CHECK(hipMalloc(gpu_qbits_states+i, sizeof(Complex<T>)*(1llu << (nqbits - number_of_gpu_log2))));
-            if (number_of_gpu > 1) {GPU_CHECK(hipMalloc(swapBuffer1+i, sizeof(Complex<T>)*(1llu << swapBufferSizeLog2)))};
-            if (number_of_gpu > 1) {GPU_CHECK(hipMalloc(swapBuffer2+i, sizeof(Complex<T>)*(1llu << swapBufferSizeLog2)))};
+            GPU_CHECK(hipMalloc(gpu_qbits_states+i, sizeof(Complex)*(1llu << (nqbits - number_of_gpu_log2))));
+            if (number_of_gpu > 1) {GPU_CHECK(hipMalloc(swapBuffer1+i, sizeof(Complex)*(1llu << swapBufferSizeLog2)))};
+            if (number_of_gpu > 1) {GPU_CHECK(hipMalloc(swapBuffer2+i, sizeof(Complex)*(1llu << swapBufferSizeLog2)))};
             gpuc[i] = createGPUQuantumCircuitAsync(mycircuit);
             //enabling direct inter device kernel communications
             for (int j = 0; j < number_of_gpu; j++){
@@ -402,18 +389,17 @@ private:
         }
     }
     void initialize(proba_state& state_input){
-        //kernel int nqbits, Complex<T>* memory, Complex<T>* qbitsangles, Complex<T> offset
         if (state_input.val.size() != nqbits){
             cout << "wrong input proba_state_size_input, defaulting to no input" << endl;
             initialize();
             return;
         }
-        vector<Complex<T>> allstates(2*nqbits);
-        vector<Complex<T>> gpustates(2*(nqbits-number_of_gpu_log2));
+        vector<Complex> allstates(2*nqbits);
+        vector<Complex> gpustates(2*(nqbits-number_of_gpu_log2));
         for (int i = 0; i < nqbits; i++){
-            Complex<T> val0, val1;
-            val0 = Complex<T>(cos((state_input.val[i].first)*PI/2), 0);
-            val1 = Complex<T>(cos((state_input.val[i].second)), sin((state_input.val[i].second)))*sin((state_input.val[i].first)*PI/2);
+            Complex val0, val1;
+            val0 = Complex(cos((state_input.val[i].first)*PI/2), 0);
+            val1 = Complex(cos((state_input.val[i].second)), sin((state_input.val[i].second)))*sin((state_input.val[i].first)*PI/2);
             allstates[initial_permutation[i]] = val0;
             allstates[initial_permutation[i] + nqbits] = val1;
         }
@@ -421,15 +407,15 @@ private:
             gpustates[i] = allstates[i];
             gpustates[i+nqbits-number_of_gpu_log2] = allstates[i+nqbits];
         }
-        Complex<T>** anglesinter_d = (Complex<T>**)malloc(sizeof(Complex<T>*)*number_of_gpu);
-        Complex<T> offset;
+        Complex** anglesinter_d = (Complex**)malloc(sizeof(Complex*)*number_of_gpu);
+        Complex offset;
         for (int i = 0; i < number_of_gpu; i++){
             GPU_CHECK(hipSetDevice(i));
-            GPU_CHECK(hipMalloc(anglesinter_d+i, sizeof(Complex<T>)*2*(nqbits - number_of_gpu_log2)));
-            GPU_CHECK(hipMemcpyHtoDAsync((hipDeviceptr_t)anglesinter_d[i], gpustates.data(), sizeof(Complex<T>)*2*(nqbits - number_of_gpu_log2), 0));
+            GPU_CHECK(hipMalloc(anglesinter_d+i, sizeof(Complex)*2*(nqbits - number_of_gpu_log2)));
+            GPU_CHECK(hipMemcpyHtoDAsync((hipDeviceptr_t)anglesinter_d[i], gpustates.data(), sizeof(Complex)*2*(nqbits - number_of_gpu_log2), 0));
             int threadnumber = min(1024llu, (1llu << (nqbits - number_of_gpu_log2)));
             int blocknumber = min((1llu << 20), (1llu << (nqbits - number_of_gpu_log2))/threadnumber);
-            offset = Complex<T>(1, 0);
+            offset = Complex(1, 0);
             for (int j = 0; j < number_of_gpu_log2; j++){
                 offset = offset * (allstates[((i >> j)%2)*nqbits + j + nqbits-number_of_gpu_log2]);
             }
@@ -444,16 +430,16 @@ private:
     proba_state measurement(){
         int threadnumber = min(1024llu, (1llu << (nqbits - number_of_gpu_log2)));
         int blocknumber = min((1llu << 5), (1llu << (nqbits - number_of_gpu_log2))/threadnumber);
-        Complex<T>** measureintermediate_d = (Complex<T>**)malloc(sizeof(Complex<T>*)*number_of_gpu);
-        Complex<T>* measureintermediate = (Complex<T>*)malloc(sizeof(Complex<T>)*2*(nqbits-number_of_gpu_log2)*threadnumber*blocknumber*number_of_gpu);
-        Complex<T>* measure = (Complex<T>*)malloc(sizeof(Complex<T>)*2*nqbits);
-        Complex<T> temp;
+        Complex** measureintermediate_d = (Complex**)malloc(sizeof(Complex*)*number_of_gpu);
+        Complex* measureintermediate = (Complex*)malloc(sizeof(Complex)*2*(nqbits-number_of_gpu_log2)*threadnumber*blocknumber*number_of_gpu);
+        Complex* measure = (Complex*)malloc(sizeof(Complex)*2*nqbits);
+        Complex temp;
         
         for (int i = 0; i < number_of_gpu; i++){
             GPU_CHECK(hipSetDevice(i));
-            GPU_CHECK(hipMalloc(measureintermediate_d+i, sizeof(Complex<T>)*(threadnumber*blocknumber*2*(nqbits-number_of_gpu_log2))));
+            GPU_CHECK(hipMalloc(measureintermediate_d+i, sizeof(Complex)*(threadnumber*blocknumber*2*(nqbits-number_of_gpu_log2))));
             measureKernel<<<dim3(blocknumber), dim3(threadnumber), 0, 0>>>((nqbits-number_of_gpu_log2), gpu_qbits_states[i], measureintermediate_d[i]);
-            GPU_CHECK(hipMemcpyDtoHAsync(measureintermediate+(2*(nqbits-number_of_gpu_log2)*threadnumber*blocknumber*i), (hipDeviceptr_t)measureintermediate_d[i], sizeof(Complex<T>)*2*(nqbits-number_of_gpu_log2)*threadnumber*blocknumber, 0));
+            GPU_CHECK(hipMemcpyDtoHAsync(measureintermediate+(2*(nqbits-number_of_gpu_log2)*threadnumber*blocknumber*i), (hipDeviceptr_t)measureintermediate_d[i], sizeof(Complex)*2*(nqbits-number_of_gpu_log2)*threadnumber*blocknumber, 0));
         }
 
         for (int i = 0; i < 2*nqbits; i++){
@@ -480,8 +466,8 @@ private:
         //now we just need to get the spin
         vector<pair<double,  double>> res(nqbits);
         for (int i = 0; i < nqbits; i++){
-            Complex<T> val0 = measure[2*i]/pow(SQRT2, (double)nqbits);
-            Complex<T> val1 = measure[2*i+1]/pow(SQRT2, (double)nqbits);
+            Complex val0 = measure[2*i]/pow(SQRT2, (double)nqbits);
+            Complex val1 = measure[2*i+1]/pow(SQRT2, (double)nqbits);
             double teta, phi;
             if (val0.norm() < 0.0000000000001){
                 teta = 1;
@@ -505,12 +491,12 @@ private:
     proba_state measurement3(){ //full multi threaded cpu version
         int localqbits = nqbits - number_of_gpu_log2;
         int usable_threads = min((int)THREADNUMBER, (1 << localqbits));
-        Complex<T>* buffer1 = (Complex<T>*)malloc(sizeof(Complex<T>)*(1llu << localqbits));
-        Complex<T>* buffer2 = (Complex<T>*)malloc(sizeof(Complex<T>)*(1llu << localqbits));
-        Complex<T>* threadres = (Complex<T>*)malloc(sizeof(Complex<T>)*usable_threads*localqbits*2);
-        Complex<T>* measure = (Complex<T>*)malloc(sizeof(Complex<T>)*localqbits*2);
+        Complex* buffer1 = (Complex*)malloc(sizeof(Complex)*(1llu << localqbits));
+        Complex* buffer2 = (Complex*)malloc(sizeof(Complex)*(1llu << localqbits));
+        Complex* threadres = (Complex*)malloc(sizeof(Complex)*usable_threads*localqbits*2);
+        Complex* measure = (Complex*)malloc(sizeof(Complex)*localqbits*2);
         vector<thread> threads;
-        Complex<T> temp;
+        Complex temp;
 
         for (int i = 0; i < usable_threads*2*localqbits; i++){
             threadres[i] = 0;
@@ -519,7 +505,7 @@ private:
             measure[i] = 0;
         }
         
-        auto threadef = [&localqbits](Complex<T>* res, Complex<T>* buffer, size_t i, size_t j){
+        auto threadef = [&localqbits](Complex* res, Complex* buffer, size_t i, size_t j){
             for (int i = 0; i < j; i++){
                 for (int qbit = 0; qbit < localqbits; qbit++){
                     res[qbit*2 + ((i >> qbit)%2)] += buffer[i];
@@ -530,13 +516,13 @@ private:
 
         //parallel load from gpu and compute on cpu
         GPU_CHECK(hipSetDevice(0));
-        GPU_CHECK(hipMemcpyDtoH(buffer1, (hipDeviceptr_t)gpu_qbits_states[0], sizeof(Complex<T>)*(1llu << localqbits)));
+        GPU_CHECK(hipMemcpyDtoH(buffer1, (hipDeviceptr_t)gpu_qbits_states[0], sizeof(Complex)*(1llu << localqbits)));
 
         for (int i = 0; i < number_of_gpu; i++){
             threads.clear();
             if (i+1 < number_of_gpu){
                 GPU_CHECK(hipSetDevice(i+1));
-                GPU_CHECK(hipMemcpyDtoHAsync(buffer2, (hipDeviceptr_t)gpu_qbits_states[i+1], sizeof(Complex<T>)*(1llu << localqbits), 0));
+                GPU_CHECK(hipMemcpyDtoHAsync(buffer2, (hipDeviceptr_t)gpu_qbits_states[i+1], sizeof(Complex)*(1llu << localqbits), 0));
             }
             //let's compute for buffer 1
             size_t work_per_thread = ((1llu << localqbits)/usable_threads);
@@ -574,8 +560,8 @@ private:
         //now we just need to get the spin
         vector<pair<double,  double>> res(nqbits);
         for (int i = 0; i < nqbits; i++){
-            Complex<T> val0 = measure[2*i]/pow(SQRT2, (double)nqbits);
-            Complex<T> val1 = measure[2*i+1]/pow(SQRT2, (double)nqbits);
+            Complex val0 = measure[2*i]/pow(SQRT2, (double)nqbits);
+            Complex val1 = measure[2*i+1]/pow(SQRT2, (double)nqbits);
             double teta, phi;
             if (val0.norm() < 0.0000000000001){
                 teta = 1;
@@ -638,10 +624,10 @@ private:
                 int work_per_thread = max(1llu, (unsigned long long)chunk_size/threadnumber/blocknumber);
                 GPU_CHECK(hipSetDevice(baseIndex));
                 swapqbitKernelIndirectAccessEXTRACT<<<dim3(blocknumber), dim3(threadnumber), 0, 0>>>((nqbits - number_of_gpu_log2), q1, 1llu, gpu_qbits_states[baseIndex], swapBuffer1[baseIndex], current, work_per_thread);
-                GPU_CHECK(hipMemcpyPeer(swapBuffer2[otherIndex], otherIndex, swapBuffer1[baseIndex], baseIndex, sizeof(Complex<T>)*chunk_size));
+                GPU_CHECK(hipMemcpyPeer(swapBuffer2[otherIndex], otherIndex, swapBuffer1[baseIndex], baseIndex, sizeof(Complex)*chunk_size));
                 GPU_CHECK(hipSetDevice(otherIndex));
                 swapqbitKernelIndirectAccessEXTRACT<<<dim3(blocknumber), dim3(threadnumber), 0, 0>>>((nqbits - number_of_gpu_log2), q1, 0, gpu_qbits_states[otherIndex], swapBuffer1[otherIndex], current, work_per_thread);
-                GPU_CHECK(hipMemcpyPeerAsync(swapBuffer2[baseIndex], baseIndex, swapBuffer1[otherIndex], otherIndex, sizeof(Complex<T>)*chunk_size, 0));
+                GPU_CHECK(hipMemcpyPeerAsync(swapBuffer2[baseIndex], baseIndex, swapBuffer1[otherIndex], otherIndex, sizeof(Complex)*chunk_size, 0));
             }
             for (int i = 0; i < number_of_gpu; i++){
                 GPU_CHECK(hipDeviceSynchronize());
@@ -681,10 +667,10 @@ private:
                 int work_per_thread = max(1llu, (unsigned long long)chunk_size/threadnumber/blocknumber);
                 GPU_CHECK(hipSetDevice(baseIndex));
                 swapqbitKernelIndirectAccessEXTRACT<<<dim3(blocknumber), dim3(threadnumber), 0, 0>>>((nqbits - number_of_gpu_log2), q1, 1llu, gpu_qbits_states[baseIndex], swapBuffer1[baseIndex], current, work_per_thread);
-                GPU_CHECK(hipMemcpyDtoHAsync(cswapBuffer[baseIndex], (hipDeviceptr_t)swapBuffer1[baseIndex], sizeof(Complex<T>)*chunk_size, 0));
+                GPU_CHECK(hipMemcpyDtoHAsync(cswapBuffer[baseIndex], (hipDeviceptr_t)swapBuffer1[baseIndex], sizeof(Complex)*chunk_size, 0));
                 GPU_CHECK(hipSetDevice(otherIndex));
                 swapqbitKernelIndirectAccessEXTRACT<<<dim3(blocknumber), dim3(threadnumber), 0, 0>>>((nqbits - number_of_gpu_log2), q1, 0, gpu_qbits_states[otherIndex], swapBuffer1[otherIndex], current, work_per_thread);
-                GPU_CHECK(hipMemcpyDtoHAsync(cswapBuffer[otherIndex], (hipDeviceptr_t)swapBuffer1[otherIndex], sizeof(Complex<T>)*chunk_size, 0));
+                GPU_CHECK(hipMemcpyDtoHAsync(cswapBuffer[otherIndex], (hipDeviceptr_t)swapBuffer1[otherIndex], sizeof(Complex)*chunk_size, 0));
             }
             for (int i = 0; i < number_of_gpu; i++){
                 GPU_CHECK(hipDeviceSynchronize());
@@ -698,10 +684,10 @@ private:
                 int blocknumber = min((1llu << 12), (unsigned long long)(chunk_size)/threadnumber);
                 int work_per_thread = max(1llu, (unsigned long long)chunk_size/threadnumber/blocknumber);
                 GPU_CHECK(hipSetDevice(baseIndex));
-                GPU_CHECK(hipMemcpyHtoDAsync((hipDeviceptr_t)swapBuffer2[baseIndex], cswapBuffer[otherIndex], sizeof(Complex<T>)*chunk_size, 0));
+                GPU_CHECK(hipMemcpyHtoDAsync((hipDeviceptr_t)swapBuffer2[baseIndex], cswapBuffer[otherIndex], sizeof(Complex)*chunk_size, 0));
                 swapqbitKernelIndirectAccessIMPORT<<<dim3(blocknumber), dim3(threadnumber), 0, 0>>>((nqbits - number_of_gpu_log2), q1, 1llu, gpu_qbits_states[baseIndex], swapBuffer2[baseIndex], current, work_per_thread);
                 GPU_CHECK(hipSetDevice(otherIndex));
-                GPU_CHECK(hipMemcpyHtoDAsync((hipDeviceptr_t)swapBuffer2[otherIndex], cswapBuffer[baseIndex], sizeof(Complex<T>)*chunk_size, 0));
+                GPU_CHECK(hipMemcpyHtoDAsync((hipDeviceptr_t)swapBuffer2[otherIndex], cswapBuffer[baseIndex], sizeof(Complex)*chunk_size, 0));
                 swapqbitKernelIndirectAccessIMPORT<<<dim3(blocknumber), dim3(threadnumber), 0, 0>>>((nqbits - number_of_gpu_log2), q1, 0, gpu_qbits_states[otherIndex], swapBuffer2[otherIndex], current, work_per_thread);
             }
             for (int i = 0; i < number_of_gpu; i++){
@@ -755,7 +741,7 @@ private:
                 cout << "too much qbits in one group for this gpu's shared memory... I cancel this group's computation" << endl;
                 continue;
             }
-            executeGroupKernelSharedState<<<dim3(blocknumber), dim3(threadnumber), totalshared_block, 0>>>((nqbits - number_of_gpu_log2), gpu_qbits_states[m], qbits.size(), groupqbitsgpu[m], gpuc[m].gates+i, j-i, totalshared_block - sizeof(Complex<T>)*(1llu << qbits.size()));
+            executeGroupKernelSharedState<<<dim3(blocknumber), dim3(threadnumber), totalshared_block, 0>>>((nqbits - number_of_gpu_log2), gpu_qbits_states[m], qbits.size(), groupqbitsgpu[m], gpuc[m].gates+i, j-i, totalshared_block - sizeof(Complex)*(1llu << qbits.size()));
         }
 
         for (int m = 0; m < number_of_gpu; m++){
@@ -766,3 +752,5 @@ private:
         free(groupqbitsgpu);
     }
 };
+
+#endif

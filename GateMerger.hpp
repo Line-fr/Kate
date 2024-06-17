@@ -2,10 +2,10 @@
 #include "GPUGate.hpp"
 #include "basic_host_types.hpp"
 #include "GPUQuantumCircuit.hpp"
+#include "QuantumCircuit.hpp"
 
-template<typename T>
 __global__
-void mergeGatesKernel(GPUGate<T> returnvalue, GPUQuantumCircuit<T> qc, int* coveredqbits_ordered, int gpunumberlog2, int gpuid, int sharedMemMatrixSize){ //the whole circuit is going to merge into a single matrix (that is the plan)
+void mergeGatesKernel(GPUGate returnvalue, GPUQuantumCircuit qc, int* coveredqbits_ordered, int gpunumberlog2, int gpuid, int sharedMemMatrixSize){ //the whole circuit is going to merge into a single matrix (that is the plan)
     int bit_to_groupbitnumber[64];
     for (int i = 0; i < qc.nqbits; i++){
         bit_to_groupbitnumber[coveredqbits_ordered[i]] = i;
@@ -14,14 +14,14 @@ void mergeGatesKernel(GPUGate<T> returnvalue, GPUQuantumCircuit<T> qc, int* cove
     size_t input = blockIdx.x + (gpuid << (qc.nqbits - gpunumberlog2));
     size_t initline = threadIdx.x;
 
-    extern __shared__ Complex<T> qbitsstateANDmatrixstate[]; //must be of size sizeof(T)*2**nbqbits + sharedMemMatrixSize*sizeof(T)
-    Complex<T>* qbitsstate = qbitsstateANDmatrixstate; //size sizeof(T)*2**nbqbits
-    Complex<T>* matrixsharedstorage = qbitsstateANDmatrixstate + (1llu << qc.nqbits); //size sharedMemMatrixSize*sizeof(T)
+    extern __shared__ Complex qbitsstateANDmatrixstate[]; //must be of size sizeof(T)*2**nbqbits + sharedMemMatrixSize*sizeof(T)
+    Complex* qbitsstate = qbitsstateANDmatrixstate; //size sizeof(T)*2**nbqbits
+    Complex* matrixsharedstorage = qbitsstateANDmatrixstate + (1llu << qc.nqbits); //size sharedMemMatrixSize*sizeof(T)
 
     //initialization
     int work_per_thread0 = (1llu << qc.nqbits)/blockDim.x;
     for (int line = initline*work_per_thread0; line < (initline+1)*work_per_thread0; line++){
-        qbitsstate[line] = Complex<T>(((line == input)? 1. : 0.), 0.);
+        qbitsstate[line] = Complex(((line == input)? 1. : 0.), 0.);
     }
     __syncthreads(); //everyone in the block has fast acces to the whole state, now let s explore the circuit!
 
@@ -35,8 +35,7 @@ void mergeGatesKernel(GPUGate<T> returnvalue, GPUQuantumCircuit<T> qc, int* cove
     }
 }
 
-template<typename T>
-__host__ Gate<T> mergeGate(vector<Gate<T>> to_merge, hipStream_t stream = 0){
+__host__ Gate mergeGate(vector<Gate> to_merge, hipStream_t stream = 0){
     //first we need to not forget about reindexing
     int maxseen = 0;
     set<int> total_covered;
@@ -72,11 +71,11 @@ __host__ Gate<T> mergeGate(vector<Gate<T>> to_merge, hipStream_t stream = 0){
         }
         gate.qbits = temp;
     }*/
-    QuantumCircuit<T> to_mergecirc(to_merge, total_covered.size()); //temporary encapsulation to call the GPU one
-    GPUQuantumCircuit<T> gpucircuit = createGPUQuantumCircuit<T>(to_mergecirc);
+    QuantumCircuit to_mergecirc(to_merge, total_covered.size()); //temporary encapsulation to call the GPU one
+    GPUQuantumCircuit gpucircuit = createGPUQuantumCircuit(to_mergecirc);
     //now the circuit is ready for inputing into the kernel
     //let's generate the returned GPUGate
-    GPUGate<T> resGPU = createGPUGate<T>(total_covered.size(), vector<int>(total_covered.begin(), total_covered.end())); //the kernel will fill the matrix and these informations will be correct
+    GPUGate resGPU = createGPUGate(total_covered.size(), vector<int>(total_covered.begin(), total_covered.end())); //the kernel will fill the matrix and these informations will be correct
     hipDeviceProp_t devattr;
     int device;
     GPU_CHECK(hipGetDevice(&device));
@@ -84,8 +83,8 @@ __host__ Gate<T> mergeGate(vector<Gate<T>> to_merge, hipStream_t stream = 0){
     size_t totalshared_block = devattr.sharedMemPerBlock;
     //only 1 gpu for now. If gpucircuit has less than 5 qbits, we are sad but it should work?
     //ideally, we should do it on CPU when nqbits < 8
-    mergeGatesKernel<<<dim3((1llu << gpucircuit.nqbits)), dim3(min((int)1024, (int)(1llu << gpucircuit.nqbits))), totalshared_block, stream>>>(resGPU, gpucircuit, coveredqbits_ordered, 0, 0, (totalshared_block - (1llu << gpucircuit.nqbits))/sizeof(Complex<T>));
-    Gate<T> res(resGPU);
+    mergeGatesKernel<<<dim3((1llu << gpucircuit.nqbits)), dim3(min((int)1024, (int)(1llu << gpucircuit.nqbits))), totalshared_block, stream>>>(resGPU, gpucircuit, coveredqbits_ordered, 0, 0, (totalshared_block - (1llu << gpucircuit.nqbits))/sizeof(Complex));
+    Gate res = createGatefromGPU(resGPU);
     destroyGPUGate(resGPU);
     destroyGPUQuantumCircuit(gpucircuit);
     GPU_CHECK(hipFree(coveredqbits_ordered));

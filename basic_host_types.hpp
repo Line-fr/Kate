@@ -1,23 +1,22 @@
 #ifndef BASICIMPORTED
 #define BASICIMPORTED
 
-template<typename T>
 class Complex{
     public:
-    T a;
-    T b;
+    double a;
+    double b;
     __device__ __host__
-    Complex<T>(T a, T b){
+    Complex(double a, double b){
         this->a = a;
         this->b = b;
     }
     __device__ __host__
-    Complex<T>(T a){
+    Complex(double a){
         this->a = a;
         this->b = 0;
     }
     __device__ __host__
-    Complex<T>(){
+    Complex(){
         a = 0;
         b = 0;
     }
@@ -32,42 +31,42 @@ class Complex{
         return atan(b/a);
     }
     __device__ __host__
-    Complex<T> operator+(Complex<T> other){
-        return Complex<T>(a+other.a, b+other.b);
+    Complex operator+(Complex other){
+        return Complex(a+other.a, b+other.b);
     }
     __device__ __host__
-    Complex<T> operator-(Complex<T> other){
-        return Complex<T>(a-other.a, b-other.b);
+    Complex operator-(Complex other){
+        return Complex(a-other.a, b-other.b);
     }
     __device__ __host__
-    Complex<T> operator*(Complex<T> other){
-        return Complex<T>(a*other.a - b*other.b, a*other.b + b*other.a);
+    Complex operator*(Complex other){
+        return Complex(a*other.a - b*other.b, a*other.b + b*other.a);
     }
     __device__ __host__
-    Complex<T> operator*(double other){
-        return Complex<T>(a*other, b*other);
+    Complex operator*(double other){
+        return Complex(a*other, b*other);
     }
     __device__ __host__
-    Complex<T> operator*(int other){
-        return Complex<T>(a*other, b*other);
+    Complex operator*(int other){
+        return Complex(a*other, b*other);
     }
-    Complex<T> operator/(Complex<T> other){
+    Complex operator/(Complex other){
         double n = other.a*other.a + other.b*other.b;
-        return Complex<T>((a*other.a + b*other.b)/n, (other.a*b - a*other.b)/n);
+        return Complex((a*other.a + b*other.b)/n, (other.a*b - a*other.b)/n);
     }
     __device__ __host__
-    void operator+=(Complex<T> other){
+    void operator+=(Complex other){
         a += other.a;
         b += other.b;
     }
     __device__ __host__
-    void operator-=(Complex<T> other){
+    void operator-=(Complex other){
         a -= other.a;
         b -= other.b;
     }
     __device__ __host__
-    void operator*=(Complex<T> other){
-        T temp = a;
+    void operator*=(Complex other){
+        double temp = a;
         a = a*other.a - b*other.b;
         b = temp*other.b + b*other.a;
     }
@@ -78,10 +77,9 @@ class Complex{
     }
 };
 
-template<typename T>
-__device__ Complex<T> exp(Complex<T> i){
+__device__ Complex exp(Complex i){
     double temp = exp(i.a);
-    return Complex<T>(temp*cos(i.b), temp*sin(i.b));
+    return Complex(temp*cos(i.b), temp*sin(i.b));
 }
 
 template<typename T>
@@ -190,19 +188,17 @@ public:
     
 };
 
-template<typename T>
 class GPUGate;
 
-template<typename T>
 class Gate{
 public:
     int identifier = -1; //0 is dense, 2 is H, 3 is CNOT,...
     int optarg;
     double optarg2;
-    Complex<T> optarg3;
-    Matrix<Complex<T>> densecontent;
+    Complex optarg3;
+    Matrix<Complex> densecontent;
     vector<int> qbits;
-    Gate(int identifier, vector<int>& qbits, int optarg = 0, double optarg2 = 0, Complex<T> optarg3 = 0){
+    Gate(int identifier, vector<int>& qbits, int optarg = 0, double optarg2 = 0, Complex optarg3 = 0){
         this->identifier = identifier;
         this->optarg = optarg;
         this->optarg2 = optarg2;
@@ -233,7 +229,7 @@ public:
         }
         this->qbits = qbits;
     }
-    Gate(Matrix<Complex<T>>& densecontent, vector<int>& qbits){
+    Gate(Matrix<Complex>& densecontent, vector<int>& qbits){
         identifier = 0;
         this->densecontent = densecontent;
         //checking that everyone in qbit is unique
@@ -250,7 +246,7 @@ public:
             cout << "size mismatch dense matrix dimension error" << endl;
         }
     }
-    Gate(int identifier, Matrix<Complex<T>>& densecontent, vector<int>& qbits){
+    Gate(int identifier, Matrix<Complex>& densecontent, vector<int>& qbits){
         this->identifier = identifier;
         this->densecontent = densecontent;
         //checking that everyone in qbit is unique
@@ -266,17 +262,6 @@ public:
         if ((1llu << qbits.size()) != densecontent.n){
             cout << "size mismatch dense matrix dimension error" << endl;
         }
-    }
-    Gate(const GPUGate<T>& other){
-        identifier = other.identifier;
-        densecontent = Matrix<Complex<T>>(other.densecontent);
-        qbits.clear();
-        int* temp = (int*)malloc(sizeof(int)*other.nbqbits);
-        GPU_CHECK(hipMemcpyDtoH(temp, (hipDeviceptr_t)other.qbits, sizeof(int)*other.nbqbits));
-        for (int i = 0; i < other.nbqbits; i++){
-            qbits.push_back(temp[i]);
-        }
-        free(temp);
     }
     void print(){
         cout << "Identifier : " << identifier << ", Qbits affected : ";
