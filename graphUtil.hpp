@@ -1,3 +1,6 @@
+#ifndef GRAPHUTILDONE
+#define GRAPHUTILDONE
+
 #include<vector>
 #include<queue>
 #include<stdlib.h>
@@ -76,3 +79,5 @@ public:
         return result2;
     }
 };
+
+#endif
