@@ -1,11 +1,13 @@
 #ifndef GPUQUANTUMCIRCUITDONE
 #define GPUQUANTUMCIRCUITDONE
 
-#include "preprocessor.hpp"
+#include "HIPpreprocessor.hpp"
 #include "GPUGate.hpp"
-#include "basic_host_types.hpp"
+#include "../backendagnosticcode/basic_host_types.hpp"
 #include "GPUMatrix.hpp"
-#include "QuantumCircuit.hpp"
+#include "../backendagnosticcode/QuantumCircuit.hpp"
+
+namespace Kate {
 
 class GPUQuantumCircuit{
 public:
@@ -51,6 +53,8 @@ void destroyGPUQuantumCircuit(const GPUQuantumCircuit& el){
         destroyGPUGate(temp[i]);
     }
     free(temp);
+}
+
 }
 
 #endif

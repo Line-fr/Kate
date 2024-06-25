@@ -1,8 +1,10 @@
 #ifndef GPUMATRIXDONE
 #define GPUMATRIXDONE
 
-#include "basic_host_types.hpp"
-#include "preprocessor.hpp"
+#include "../backendagnosticcode/basic_host_types.hpp"
+#include "HIPpreprocessor.hpp"
+
+namespace Kate {
 
 template<typename T>
 class GPUMatrix{
@@ -44,6 +46,17 @@ GPUMatrix<T> createGPUMatrixAsync(const Matrix<T>& other){
 template<typename T>
 void destroyGPUMatrix(const GPUMatrix<T>& other){
     GPU_CHECK(hipFree(other.data));
+}
+
+template<typename T>
+Matrix<T> MatrixfromGPUMatrix(const GPUMatrix<T>& other){
+    Matrix<T> res;
+    res.n = other.n;
+    res.data = (T*)malloc(sizeof(T)*other.n*other.n);
+    GPU_CHECK(hipMemcpyDtoH(res.data, (hipDeviceptr_t)other.data, sizeof(T)*other.n*other.n));
+    return res;
+}
+
 }
 
 #endif

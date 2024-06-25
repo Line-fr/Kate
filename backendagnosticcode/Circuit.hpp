@@ -1,8 +1,10 @@
 #ifndef OPTIMIZATIONSDONE
 #define OPTIMIZATIONSDONE
 
+#include "agnosticpreprocessor.hpp"
 #include "QuantumCircuit.hpp"
-#include "GateMerger.hpp"
+
+namespace Kate {
 
 class Circuit: public QuantumCircuit{
 public:
@@ -10,8 +12,8 @@ public:
     void gateScheduling(){ //OPTIMISATION STEP 1 (non optimal)
         //this step is made to help the other optimisations do their jobs better by regrouping matrices on similar qbits
         if (gate_set_ordered.size() == 0) return;
-        vector<vector<int>> dependencyGraph(gate_set_ordered.size());
-        vector<vector<int>> dependencyGraphReversed(gate_set_ordered.size());
+        std::vector<std::vector<int>> dependencyGraph(gate_set_ordered.size());
+        std::vector<std::vector<int>> dependencyGraphReversed(gate_set_ordered.size());
         Graph dependencyGraphMat(gate_set_ordered.size());
 
         int* lastused = (int*)malloc(sizeof(int)*nqbits);
@@ -42,23 +44,23 @@ public:
         //the objective here is to regroup gates working on similar qbits as most as possible
         //an optimal way of doing this is to explore recursively from the end and .. in a way to test all combinations. However, this is not possible here
         //As such, we will execute a depth first search which favorise big connections locally (depth 1 search)
-        vector<int> neworder;
-        vector<bool> f(gate_set_ordered.size(), true);
+        std::vector<int> neworder;
+        std::vector<bool> f(gate_set_ordered.size(), true);
 
         //get gates with on which no one relies on except us
-        list<int> possible_nodes;
+        std::list<int> possible_nodes;
         for (int i = 0; i < gate_set_ordered.size(); i++){
             if (dependencyGraph[i].size() == 0){
                 possible_nodes.push_back(i);
             }
         }
 
-        vector<int> remaining_dependencies(gate_set_ordered.size());
+        std::vector<int> remaining_dependencies(gate_set_ordered.size());
         for (int i = 0; i < gate_set_ordered.size(); i++){
             remaining_dependencies[i] = dependencyGraph[i].size();
         }
 
-        set<int> last_qbits = {};
+        std::set<int> last_qbits = {};
         int current_weight;
         double temp;
         while (!possible_nodes.empty()){
@@ -78,7 +80,7 @@ public:
             possible_nodes.erase(itsaved, itsaved2);
 
             neworder.push_back(u);
-            last_qbits = set<int>(gate_set_ordered[u].qbits.begin(), gate_set_ordered[u].qbits.end());
+            last_qbits = std::set<int>(gate_set_ordered[u].qbits.begin(), gate_set_ordered[u].qbits.end());
             for (const auto& el: dependencyGraphReversed[u]){
                 remaining_dependencies[el]--;
                 if (remaining_dependencies[el] == 0){
@@ -88,7 +90,7 @@ public:
         }
 
         //now we just need to reverse neworder and put the gates in the right order!
-        vector<Gate> newvect;
+        std::vector<Gate> newvect;
         for (int i = 0; i < neworder.size(); i++){
             newvect.push_back(gate_set_ordered[neworder[neworder.size()-1-i]]);
         }
@@ -99,12 +101,12 @@ public:
         //qbitsizelimit should ideally stay below shared_memory capacity as stated in printGPUInfo
         //this step is to reduce both memory bandwidth pressure and computation time pressure
         //memory bandwidth pressure should not be taken into account in defining merge_time_matters since the problem will be dealt with at opt step 3 anyway
-        set<int> precompute;
+        std::set<int> precompute;
         double temp;
         double temp2;
         Graph optim(gate_set_ordered.size()+1); //from 0 (no execution) to number_of_gate included for everything executed
         for (int i = 0; i < gate_set_ordered.size(); i++){
-            precompute = set<int>(gate_set_ordered[i].qbits.begin(), gate_set_ordered[i].qbits.end());
+            precompute = std::set<int>(gate_set_ordered[i].qbits.begin(), gate_set_ordered[i].qbits.end());
             switch (gate_set_ordered[i].identifier){
                 case 0:
                     temp = (1llu << precompute.size());
@@ -139,16 +141,16 @@ public:
             }
         }
         //now we just need to path find from 0 to nqbits to know where to merge!
-        vector<int> path = optim.pathFinding(0, gate_set_ordered.size());
+        std::vector<int> path = optim.pathFinding(0, gate_set_ordered.size());
         //let's merge
-        vector<Gate> newcircuit;
+        std::vector<Gate> newcircuit;
         int f = -1;
         for (const auto& el: path){
             if (f == -1) {
                 f = el;
                 continue;
             }
-            //cout << "merge " << f << " up to " << el << endl;
+            //cout << "merge " << f << " up to " << el << std::endl;
             if (el == f+1){
                 newcircuit.push_back(gate_set_ordered[f]);
                 f = el;
@@ -157,7 +159,7 @@ public:
             //we need to merge gates from f (included) to el (excluded) which consist in the evaluation of the output for each input
             //cost of a merge of k gates is at worst k*(2**nqbits)**3 which can be worse than executing the circuit once when nqbits is too high. as such, it is recommended to limit the size of the merge to at most nqbits/3 except if the circuit is gonna be reused a lot
             //for that purpose, we could rerun the simulator on each possible input.
-            vector<Gate> to_merge;
+            std::vector<Gate> to_merge;
             for (int i = f; i < el; i++){
                 to_merge.push_back(gate_set_ordered[i]);
             }
@@ -172,7 +174,7 @@ public:
     void gateGrouping(int qbitgroupsize = 8){ // OPTIMISATION STEP 3 (optimal given a schedule)
         //this step is exclusively to reduce memory bandwidth pressure
         //qbitgroupsize should be set to what your registers per thread can tolere (minus some margin for the overhead registers)
-        set<int> precompute;
+        std::set<int> precompute;
         Graph optim(gate_set_ordered.size()+1);
         for (int i = 0; i < gate_set_ordered.size(); i++){
             precompute.clear();
@@ -183,8 +185,8 @@ public:
             }
         }
         //now the groups will be given by path finding!
-        vector<int> fgroups = optim.pathFinding(0, gate_set_ordered.size());
-        groups = vector<pair<int, set<int>>>(fgroups.size()-1); // no 0
+        std::vector<int> fgroups = optim.pathFinding(0, gate_set_ordered.size());
+        groups = std::vector<std::pair<int, std::set<int>>>(fgroups.size()-1); // no 0
         //let's precompute qbits of each groups
         int group = 1;
         precompute.clear();
@@ -203,7 +205,7 @@ public:
     void allocate(int numberofgpulog2 = 0, int maxlocalqbitnumber= 300){ //OPTIMISATION STEP 4 (it can be further optimised taking into account multiple swaps at the same time)
         //only support homogeneous gpus or the slow one will slow the big one
         if (maxlocalqbitnumber + numberofgpulog2 < nqbits){
-            cout << "Error: Can't allocate - Too much qbits in the circuit to handle with " << maxlocalqbitnumber << " localqbits and " << (1llu << numberofgpulog2) << " gpus" << endl;
+            std::cout << "Error: Can't allocate - Too much qbits in the circuit to handle with " << maxlocalqbitnumber << " localqbits and " << (1llu << numberofgpulog2) << " gpus" << std::endl;
             return;
         }
         
@@ -214,42 +216,42 @@ public:
         //if no grouping optimisation is done, we will use naive grouping which is one group per gate because it is necessary for our later processing
         if (groups.size() == 0){
             for (int i = 0; i < gate_set_ordered.size(); i++){
-                groups.push_back(make_pair(i+1, set<int>(gate_set_ordered[i].qbits.begin(), gate_set_ordered[i].qbits.end())));
+                groups.push_back(std::make_pair(i+1, std::set<int>(gate_set_ordered[i].qbits.begin(), gate_set_ordered[i].qbits.end())));
             }
         }
         //if (nqbits <= maxlocalqbitnumber || numberofgpulog2 == 0){
         //    //just need to push compute1 number of group times
         //    for (int i = 0; i < groups.size(); i++){
-        //        instructions.push_back(make_pair(1, vector<int>()));
+        //        instructions.push_back(make_pair(1, std::vector<int>()));
         //    }
         //    return;
         //}
         //we need to know at each step when will a qbit be useful next. 
         //A way to do it in linear time is to precompute when it is used when it will be used next which can be done in linear time
         //there is complicated but doable way of doing it in nlogn total but here we will see a n**2 way with the precomputation
-        vector<set<pair<int, int>>> precompute(groups.size()); //pair<int,int> is (qbit, time before reappearing)
-        vector<int> last_seen(nqbits, INT32_MAX); //you wouldn't use anywhere close to 2**32 gates right?
+        std::vector<std::set<std::pair<int, int>>> precompute(groups.size()); //pair<int,int> is (qbit, time before reappearing)
+        std::vector<int> last_seen(nqbits, INT32_MAX); //you wouldn't use anywhere close to 2**32 gates right?
         for (int i = groups.size()-1; i >= 0; i--){
             for (const auto& el: groups[i].second){ //all qbit of a group
-                precompute[i].insert(make_pair(el, last_seen[el] - i));
+                precompute[i].insert(std::make_pair(el, last_seen[el] - i));
                 last_seen[el] = i;
             }
         }
         //now we can start allocating in the direct direction instead of the reverse one like the precomputation
 
         //first is the initialization using.. the remaining unused end state of last_seen!
-        vector<int> last_seenid(last_seen.size());
+        std::vector<int> last_seenid(last_seen.size());
         for (int i = 0; i < nqbits; i++){
             last_seenid[i] = i;
         } //we will sort the array so this is useful to remember indexes
         sort(last_seenid.begin(), last_seenid.end(), [&last_seen](int a, int b){return last_seen[a] < last_seen[b];});
-        vector<int> locals, globals;
-        locals = vector<int>(last_seenid.begin(),last_seenid.end()-numberofgpulog2);
-        globals = vector<int>(last_seenid.end()-numberofgpulog2, last_seenid.end());
+        std::vector<int> locals, globals;
+        locals = std::vector<int>(last_seenid.begin(),last_seenid.end()-numberofgpulog2);
+        globals = std::vector<int>(last_seenid.end()-numberofgpulog2, last_seenid.end());
         //last part of initialization
-        vector<int> nextsee(nqbits, 0);
-        vector<int> permutation(nqbits, 0); //super important
-        vector<int> inversepermutation(nqbits, 0);
+        std::vector<int> nextsee(nqbits, 0);
+        std::vector<int> permutation(nqbits, 0); //super important
+        std::vector<int> inversepermutation(nqbits, 0);
         //qbit is local if permutation[qbit] < maxlocalqbitnumber
         for (int i = 0; i < nqbits; i++){
             nextsee[i] = last_seen[i];
@@ -271,15 +273,15 @@ public:
 
         //i <-> j, permutation[i] <-> permutation[j]
         //now we can definitely generate instructions!
-        vector<pair<int, int>> pairs;
-        set<int> alreadytaken;
+        std::vector<std::pair<int, int>> pairs;
+        std::set<int> alreadytaken;
         int k = 0; //gate index
         for (int i = 0; i < groups.size(); i++){
             for (int l = 0; l < nqbits; l++){
                 nextsee[l] -= 1;
             }
             pairs = {};
-            alreadytaken = set<int>(groups[i].second.begin(), groups[i].second.end());
+            alreadytaken = std::set<int>(groups[i].second.begin(), groups[i].second.end());
             for (const auto& el: groups[i].second){ //let's check who we need to swap!
                 if (permutation[el] >= maxlocalqbitnumber){
                     //ho no you are in global!
@@ -298,15 +300,15 @@ public:
                     }
 
                     if (worstqbit == -1){
-                        cout << "ALLOCATION FAILED: not enough localqbit available for a given group" << endl;
+                        std::cout << "ALLOCATION FAILED: not enough localqbit available for a given group" << std::endl;
                         return;
                     }
                     //beware that pairs take into account permutations that have already happened!
                     
-                    pairs.push_back(make_pair(permutation[el], permutation[worstqbit]));
+                    pairs.push_back(std::make_pair(permutation[el], permutation[worstqbit]));
                     //now let's refresh permutations
-                    swap(inversepermutation[permutation[el]], inversepermutation[permutation[worstqbit]]);
-                    swap(permutation[el], permutation[worstqbit]);
+                    std::swap(inversepermutation[permutation[el]], inversepermutation[permutation[worstqbit]]);
+                    std::swap(permutation[el], permutation[worstqbit]);
                 }
                 nextsee[el] = INT32_MAX; //temporary, we will update right outside the loop
             }
@@ -315,21 +317,21 @@ public:
             }
             if (pairs.size() != 0){
                 //swap operation needed!
-                vector<int> pairsset;
+                std::vector<int> pairsset;
                 for (const auto& pair: pairs){
                     pairsset.push_back(pair.first);
                     pairsset.push_back(pair.second);
                 }
-                instructions.push_back(make_pair(0, pairsset));
+                instructions.push_back(std::make_pair(0, pairsset));
             }
-            instructions.push_back(make_pair(1, vector<int>()));
+            instructions.push_back(std::make_pair(1, std::vector<int>()));
             //we need to modify gates subjective qbits and of the group
-            set<int> temp;
+            std::set<int> temp;
             for (const auto& el: groups[i].second){
                 temp.insert(permutation[el]);
             }
             groups[i].second = temp;
-            vector<int> temp2;
+            std::vector<int> temp2;
             for (int l = k; l < groups[i].first; l++){
                 temp2.clear();
                 for (const auto& qbit: gate_set_ordered[l].qbits){
@@ -360,8 +362,8 @@ public:
         groups = res.groups; //we take the last subjective version (without any non local qbits)
         gate_set_ordered = res.gate_set_ordered;
         //qbits_number is not touched
-        initial_permutation = vector<int>(nqbits);
-        final_inverse_permutation = vector<int>(nqbits);
+        initial_permutation = std::vector<int>(nqbits);
+        final_inverse_permutation = std::vector<int>(nqbits);
 
         for (int i = nqbits-nodelog2; i < nqbits; i++){
             initial_permutation[i] = we.initial_permutation[i];
@@ -381,9 +383,9 @@ public:
         }
         //we need to change the swap order from we to make them subjective with respect to res this requires going through all the instructions and keeping the permutation table of res.
         instructions = {};
-        vector<int> pairsset;
-        vector<int> we_to_res = res.initial_permutation;
-        vector<int> res_to_we(nqbits-nodelog2);
+        std::vector<int> pairsset;
+        std::vector<int> we_to_res = res.initial_permutation;
+        std::vector<int> res_to_we(nqbits-nodelog2);
         for (int i = 0; i < nqbits-nodelog2; i++){
             res_to_we[we_to_res[i]] = i;
         }
@@ -397,7 +399,7 @@ public:
                     if (el >= nqbits-nodelog2) {pairsset.push_back(el); continue;}
                     pairsset.push_back(we_to_res[el]);
                 }
-                instructions.push_back(make_pair(0, pairsset));
+                instructions.push_back(std::make_pair(0, pairsset));
                 instridwe++;
             }
             instridwe++;
@@ -407,15 +409,15 @@ public:
                     int first = res.instructions[instridres].second[i];
                     int second = res.instructions[instridres].second[i+1];
                     //swap first and second (they are subjective to res)
-                    swap(res_to_we[first], res_to_we[second]);
-                    swap(we_to_res[res_to_we[first]], we_to_res[res_to_we[second]]);
+                    std::swap(res_to_we[first], res_to_we[second]);
+                    std::swap(we_to_res[res_to_we[first]], we_to_res[res_to_we[second]]);
                 }
                 instructions.push_back(res.instructions[instridres]);
                 instridres++;
             }
             instridres++;
             //finally we can add the command execution
-            instructions.push_back(make_pair(1, vector<int>()));
+            instructions.push_back(std::make_pair(1, std::vector<int>()));
             
         }
     }
@@ -424,7 +426,7 @@ public:
         //if no grouping optimisation is done, we will use naive grouping which is one group per gate because it is necessary for our later processing
         if (groups.size() == 0){
             for (int i = 0; i < gate_set_ordered.size(); i++){
-                groups.push_back(make_pair(i+1, set<int>(gate_set_ordered[i].qbits.begin(), gate_set_ordered[i].qbits.end())));
+                groups.push_back(std::make_pair(i+1, std::set<int>(gate_set_ordered[i].qbits.begin(), gate_set_ordered[i].qbits.end())));
             }
         }
         //if (nqbits <= maxlocalqbitnumber || numberofgpulog2 == 0){
@@ -437,30 +439,30 @@ public:
         //we need to know at each step when will a qbit be useful next. 
         //A way to do it in linear time is to precompute when it is used when it will be used next which can be done in linear time
         //there is complicated but doable way of doing it in nlogn total but here we will see a n**2 way with the precomputation
-        vector<set<pair<int, int>>> precompute(groups.size()); //pair<int,int> is (qbit, time before reappearing)
-        vector<int> last_seen(nqbits, INT32_MAX); //you wouldn't use anywhere close to 2**32 gates right?
+        std::vector<std::set<std::pair<int, int>>> precompute(groups.size()); //pair<int,int> is (qbit, time before reappearing)
+        std::vector<int> last_seen(nqbits, INT32_MAX); //you wouldn't use anywhere close to 2**32 gates right?
         for (int i = groups.size()-1; i >= 0; i--){
             for (const auto& el: groups[i].second){ //all qbit of a group
-                precompute[i].insert(make_pair(el, last_seen[el] - i));
+                precompute[i].insert(std::make_pair(el, last_seen[el] - i));
                 last_seen[el] = i;
             }
         }
         //now we can start allocating in the direct direction instead of the reverse one like the precomputation
 
         //first is the initialization using.. the remaining unused end state of last_seen!
-        vector<int> last_seenid(last_seen.size());
+        std::vector<int> last_seenid(last_seen.size());
         for (int i = 0; i < nqbits; i++){
             last_seenid[i] = i;
         } //we will sort the array so this is useful to remember indexes
         sort(last_seenid.begin(), last_seenid.end(), [&last_seen](int a, int b){return last_seen[a] < last_seen[b];});
-        vector<int> locals, fasts, slows;
-        locals = vector<int>(last_seenid.begin(),last_seenid.end()-slowqbits-fastqbits);
-        fasts = vector<int>(last_seenid.end()-slowqbits-fastqbits, last_seenid.end()-slowqbits);
-        slows = vector<int>(last_seenid.end()-slowqbits, last_seenid.end());
+        std::vector<int> locals, fasts, slows;
+        locals = std::vector<int>(last_seenid.begin(),last_seenid.end()-slowqbits-fastqbits);
+        fasts = std::vector<int>(last_seenid.end()-slowqbits-fastqbits, last_seenid.end()-slowqbits);
+        slows = std::vector<int>(last_seenid.end()-slowqbits, last_seenid.end());
         //last part of initialization
-        vector<int> nextsee(nqbits, 0);
-        vector<int> permutation(nqbits, 0); //super important
-        vector<int> inversepermutation(nqbits, 0);
+        std::vector<int> nextsee(nqbits, 0);
+        std::vector<int> permutation(nqbits, 0); //super important
+        std::vector<int> inversepermutation(nqbits, 0);
         //qbit is local if permutation[qbit] < maxlocalqbitnumber
         for (int i = 0; i < nqbits; i++){
             nextsee[i] = last_seen[i]+1;
@@ -487,15 +489,15 @@ public:
 
         //i <-> j, permutation[i] <-> permutation[j]
         //now we can definitely generate instructions!
-        vector<pair<int, int>> pairs;
-        set<int> alreadytaken;
+        std::vector<std::pair<int, int>> pairs;
+        std::set<int> alreadytaken;
         int k = 0; //gate index
         for (int i = 0; i < groups.size(); i++){
             for (int l = 0; l < nqbits; l++){
                 nextsee[l] -= 1;
             }
             pairs = {};
-            alreadytaken = set<int>(groups[i].second.begin(), groups[i].second.end());
+            alreadytaken = std::set<int>(groups[i].second.begin(), groups[i].second.end());
             for (const auto& el: groups[i].second){ //let's check who we need to swap!
                 if (permutation[el] >= nqbits-slowqbits-fastqbits && permutation[el] < nqbits-slowqbits){
                     //you are in the fast qbit cache! we need to swap, finding the best local qbit for that but eventually, the local one might have its place in slow so we will need to tackle this
@@ -514,16 +516,16 @@ public:
                     }
 
                     if (worstqbit == -1){
-                        cout << "ALLOCATION FAILED: not enough localqbit available for a given group" << endl;
+                        std::cout << "ALLOCATION FAILED: not enough localqbit available for a given group" << std::endl;
                         return;
                     }
 
                     //beware that pairs take into account permutations that have already happened!
                     
-                    pairs.push_back(make_pair(permutation[el], permutation[worstqbit]));
+                    pairs.push_back(std::make_pair(permutation[el], permutation[worstqbit]));
                     //now let's refresh permutations
-                    swap(inversepermutation[permutation[el]], inversepermutation[permutation[worstqbit]]);
-                    swap(permutation[el], permutation[worstqbit]);
+                    std::swap(inversepermutation[permutation[el]], inversepermutation[permutation[worstqbit]]);
+                    std::swap(permutation[el], permutation[worstqbit]);
                 } else if (permutation[el] >= nqbits-slowqbits){
                     //ho no, you are a slow qbits! there are only 2 options: going to the fast cache first then local, or local directly
                     int worstqbit = -1;
@@ -545,8 +547,8 @@ public:
 
                     int bestlocal = worstqbit;
                     weight = slowtime/weight; //we need to minimize this
-                    //cout << "starting phase" << endl;
-                    //cout << nextsee[worstqbit] << endl;
+                    //cout << "starting phase" << std::endl;
+                    //cout << nextsee[worstqbit] << std::endl;
 
                     for (int j = nqbits-slowqbits-fastqbits; j < nqbits-slowqbits; j++){ //let's investigate the cache
                         if (alreadytaken.find(inversepermutation[j]) != alreadytaken.end()){
@@ -557,7 +559,7 @@ public:
                             weight = slowtime/(double)nextsee[worstqbit] + fasttime;
                             continue;
                         }
-                        //cout << nextsee[inversepermutation[j]] << endl;
+                        //cout << nextsee[inversepermutation[j]] << std::endl;
                         if ((slowtime/(double)nextsee[inversepermutation[j]]) + fasttime < weight){
                             worstqbit = inversepermutation[j];
                             weight = slowtime/(double)nextsee[worstqbit] + fasttime;
@@ -566,23 +568,23 @@ public:
                     //cout << "end phase" << endl;
 
                     if (worstqbit == -1){
-                        cout << "ALLOCATION FAILED: not enough localqbit available for a given group" << endl;
+                        std::cout << "ALLOCATION FAILED: not enough localqbit available for a given group" << std::endl;
                         return;
                     }
                     //beware that pairs take into account permutations that have already happened!
                     
                     //let's swap the found qbit
-                    pairs.push_back(make_pair(permutation[el], permutation[worstqbit]));
+                    pairs.push_back(std::make_pair(permutation[el], permutation[worstqbit]));
                     //now let's refresh permutations
-                    swap(inversepermutation[permutation[el]], inversepermutation[permutation[worstqbit]]);
-                    swap(permutation[el], permutation[worstqbit]);
+                    std::swap(inversepermutation[permutation[el]], inversepermutation[permutation[worstqbit]]);
+                    std::swap(permutation[el], permutation[worstqbit]);
 
                     //if the found qbit was in cache, we also need to swap this new fast qbit with the best local candidate that we saved
                     if (permutation[el] >= nqbits-fastqbits-slowqbits){
-                        pairs.push_back(make_pair(permutation[bestlocal], permutation[el]));
+                        pairs.push_back(std::make_pair(permutation[bestlocal], permutation[el]));
                         //now let's refresh permutations
-                        swap(inversepermutation[permutation[bestlocal]], inversepermutation[permutation[el]]);
-                        swap(permutation[bestlocal], permutation[el]);
+                        std::swap(inversepermutation[permutation[bestlocal]], inversepermutation[permutation[el]]);
+                        std::swap(permutation[bestlocal], permutation[el]);
                     }
                 }
                 nextsee[el] = INT32_MAX; //temporary, we will update right outside the loop
@@ -592,21 +594,21 @@ public:
             }
             if (pairs.size() != 0){
                 //swap operation needed!
-                vector<int> pairsset;
+                std::vector<int> pairsset;
                 for (const auto& pair: pairs){
                     pairsset.push_back(pair.first);
                     pairsset.push_back(pair.second);
                 }
-                instructions.push_back(make_pair(0, pairsset));
+                instructions.push_back(std::make_pair(0, pairsset));
             }
-            instructions.push_back(make_pair(1, vector<int>()));
+            instructions.push_back(std::make_pair(1, std::vector<int>()));
             //we need to modify gates subjective qbits and of the group
-            set<int> temp;
+            std::set<int> temp;
             for (const auto& el: groups[i].second){
                 temp.insert(permutation[el]);
             }
             groups[i].second = temp;
-            vector<int> temp2;
+            std::vector<int> temp2;
             for (int l = k; l < groups[i].first; l++){
                 temp2.clear();
                 for (const auto& qbit: gate_set_ordered[l].qbits){
@@ -621,4 +623,5 @@ public:
     }
 };
 
+}
 #endif

@@ -1,8 +1,13 @@
-#include "preprocessor.hpp"
+#ifndef GateMergerDone
+#define GateMergerDone
+
+#include "HIPpreprocessor.hpp"
 #include "GPUGate.hpp"
-#include "basic_host_types.hpp"
+#include "../backendagnosticcode/basic_host_types.hpp"
 #include "GPUQuantumCircuit.hpp"
-#include "QuantumCircuit.hpp"
+#include "../backendagnosticcode/QuantumCircuit.hpp"
+
+namespace Kate {
 
 __global__
 void mergeGatesKernel(GPUGate returnvalue, GPUQuantumCircuit qc, int* coveredqbits_ordered, int gpunumberlog2, int gpuid, int sharedMemMatrixSize){ //the whole circuit is going to merge into a single matrix (that is the plan)
@@ -35,10 +40,10 @@ void mergeGatesKernel(GPUGate returnvalue, GPUQuantumCircuit qc, int* coveredqbi
     }
 }
 
-__host__ Gate mergeGate(vector<Gate> to_merge, hipStream_t stream = 0){
+__host__ Gate mergeGate(std::vector<Gate> to_merge, hipStream_t stream = 0){
     //first we need to not forget about reindexing
     int maxseen = 0;
-    set<int> total_covered;
+    std::set<int> total_covered;
     for (const auto& gate: to_merge){
         for (const auto& qbit: gate.qbits){
             total_covered.insert(qbit);
@@ -57,13 +62,13 @@ __host__ Gate mergeGate(vector<Gate> to_merge, hipStream_t stream = 0){
     GPU_CHECK(hipMemcpyHtoD((hipDeviceptr_t)coveredqbits_ordered, c_coveredqbits_ordered, sizeof(int)*total_covered.size()));
     /*
     //let's build permutation table
-    vector<int> permuttable(maxseen+1);
+    std::vector<int> permuttable(maxseen+1);
     int i = 0;
     for (const auto& el: total_covered){
         permuttable[el] = i;
         i++;
     }
-    vector<int> temp;
+    std::vector<int> temp;
     for (auto& gate: to_merge){
         temp.clear();
         for (const auto& qbit: gate.qbits){
@@ -75,7 +80,7 @@ __host__ Gate mergeGate(vector<Gate> to_merge, hipStream_t stream = 0){
     GPUQuantumCircuit gpucircuit = createGPUQuantumCircuit(to_mergecirc);
     //now the circuit is ready for inputing into the kernel
     //let's generate the returned GPUGate
-    GPUGate resGPU = createGPUGate(total_covered.size(), vector<int>(total_covered.begin(), total_covered.end())); //the kernel will fill the matrix and these informations will be correct
+    GPUGate resGPU = createGPUGate(total_covered.size(), std::vector<int>(total_covered.begin(), total_covered.end())); //the kernel will fill the matrix and these informations will be correct
     hipDeviceProp_t devattr;
     int device;
     GPU_CHECK(hipGetDevice(&device));
@@ -91,3 +96,7 @@ __host__ Gate mergeGate(vector<Gate> to_merge, hipStream_t stream = 0){
     free(c_coveredqbits_ordered);
     return res;
 }
+
+}
+
+#endif

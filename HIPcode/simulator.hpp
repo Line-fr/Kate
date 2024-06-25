@@ -1,34 +1,36 @@
 #ifndef SIMULATORDONE
 #define SIMULATORDONE
 
-#include "preprocessor.hpp"
-#include "QuantumCircuit.hpp"
+#include "HIPpreprocessor.hpp"
+#include "../backendagnosticcode/QuantumCircuit.hpp"
 #include "GPUQuantumCircuit.hpp"
-#include "basic_host_types.hpp"
-#include "Circuit.hpp"
+#include "../backendagnosticcode/basic_host_types.hpp"
+#include "../backendagnosticcode/Circuit.hpp"
+
+namespace Kate {
 
 class proba_state{ //non entangled
 public:
-    vector<pair<double, double>> val;
+    std::vector<std::pair<double, double>> val;
     proba_state(int nqbits){
         val.clear();
         for (int i = 0; i < nqbits; i++){
-            val.push_back(make_pair(0, 0));
+            val.push_back(std::make_pair(0, 0));
         }
     }
-    proba_state(vector<pair<double, double>>& v){
+    proba_state(std::vector<std::pair<double, double>>& v){
         val = v;
     }
     void print(){
         for (int i = 0; i < val.size(); i++){
-            cout << "Qbit " << i << " : teta=" << val[i].first << " , phi=" << val[i].second << endl;
+            std::cout << "Qbit " << i << " : teta=" << val[i].first << " , phi=" << val[i].second << std::endl;
         }
     }
 };
 
 __global__ void printKernel(Complex* mem){
     size_t tid = threadIdx.x + blockIdx.x*blockDim.x;
-    printf("at %llu there is %f\n", tid, mem[tid].a);
+    printf("at %zu there is %f\n", tid, mem[tid].a);
 }
 
 __global__ void initialize_state(int nqbits, Complex* memory, int indexfor1){
@@ -237,11 +239,11 @@ __global__ void executeGroupKernelSharedState(int nqbits, Complex* qbitsstate, i
 class Simulator{
 public:
     //copy from quantum circuit but with the gpu version
-    vector<pair<int, set<int>>> groups; //second is current qbit set, first is when to go to next group
-    vector<int> initial_permutation;
-    vector<int> final_inverse_permutation;
-    vector<pair<int, vector<int>>> instructions; //contains either 0 for swap and some qbits (they go by pair) or 1 for compute (just compute next group available)
-    vector<Gate> gate_set_ordered;
+    std::vector<std::pair<int, std::set<int>>> groups; //second is current qbit set, first is when to go to next group
+    std::vector<int> initial_permutation;
+    std::vector<int> final_inverse_permutation;
+    std::vector<std::pair<int, std::vector<int>>> instructions; //contains either 0 for swap and some qbits (they go by pair) or 1 for compute (just compute next group available)
+    std::vector<Gate> gate_set_ordered;
     int nqbits = 0;
 
     int number_of_gpu;
@@ -256,7 +258,7 @@ public:
 
     Simulator(QuantumCircuit mycircuit, int number_of_gpu, int swapBufferSizeLog2 = 24){
         if (mycircuit.instructions.size() == 0){
-            cout << "warning: the simulator has been input a circuit that is not compiled. I will compile it naively now" << endl;
+            std::cout << "warning: the simulator has been input a circuit that is not compiled. I will compile it naively now" << std::endl;
             mycircuit.compileDefault((int)log2(number_of_gpu), mycircuit.nqbits - (int)log2(number_of_gpu));
         }
         groups = mycircuit.groups;
@@ -285,9 +287,9 @@ public:
             //enabling direct inter device kernel communications
             for (int j = 0; j < number_of_gpu; j++){
                 if (i == j) continue;
-                err = hipDeviceEnablePeerAccess(j, 0);
-                if ((int)err != 704){
-                    GPU_CHECK(err);
+                errhip = hipDeviceEnablePeerAccess(j, 0);
+                if ((int)errhip != 704){
+                    GPU_CHECK(errhip);
                 }
             }
         }
@@ -318,9 +320,9 @@ public:
         duration<double, std::milli> ms_double_end = t4 - t3;
 
         if (displaytime){
-            cout << "Initialization time : " << ms_double_init.count() << " ms" << endl;
-            cout << "Computation time : " << ms_double_compute.count() << " ms" << endl;
-            cout << "measurement time : " << ms_double_end.count() << " ms" << endl;
+            std::cout << "Initialization time : " << ms_double_init.count() << " ms" << std::endl;
+            std::cout << "Computation time : " << ms_double_compute.count() << " ms" << std::endl;
+            std::cout << "measurement time : " << ms_double_end.count() << " ms" << std::endl;
         }
         return res;
     }
@@ -347,9 +349,9 @@ public:
         duration<double, std::milli> ms_double_end = t4 - t3;
 
         if (displaytime){
-            cout << "Initialization time : " << ms_double_init.count() << " ms" << endl;
-            cout << "Computation time : " << ms_double_compute.count() << " ms" << endl;
-            cout << "measurement time : " << ms_double_end.count() << " ms" << endl;
+            std::cout << "Initialization time : " << ms_double_init.count() << " ms" << std::endl;
+            std::cout << "Computation time : " << ms_double_compute.count() << " ms" << std::endl;
+            std::cout << "measurement time : " << ms_double_end.count() << " ms" << std::endl;
         }
         return res;
     }
@@ -390,12 +392,12 @@ private:
     }
     void initialize(proba_state& state_input){
         if (state_input.val.size() != nqbits){
-            cout << "wrong input proba_state_size_input, defaulting to no input" << endl;
+            std::cout << "wrong input proba_state_size_input, defaulting to no input" << std::endl;
             initialize();
             return;
         }
-        vector<Complex> allstates(2*nqbits);
-        vector<Complex> gpustates(2*(nqbits-number_of_gpu_log2));
+        std::vector<Complex> allstates(2*nqbits);
+        std::vector<Complex> gpustates(2*(nqbits-number_of_gpu_log2));
         for (int i = 0; i < nqbits; i++){
             Complex val0, val1;
             val0 = Complex(cos((state_input.val[i].first)*PI/2), 0);
@@ -464,7 +466,7 @@ private:
         }
 
         //now we just need to get the spin
-        vector<pair<double,  double>> res(nqbits);
+        std::vector<std::pair<double,  double>> res(nqbits);
         for (int i = 0; i < nqbits; i++){
             Complex val0 = measure[2*i]/pow(SQRT2, (double)nqbits);
             Complex val1 = measure[2*i+1]/pow(SQRT2, (double)nqbits);
@@ -479,7 +481,7 @@ private:
                 teta = atan((val1.norm())/(val0.norm()))/(PI/2);
                 phi = (val1/val0).angle();
             }
-            res[final_inverse_permutation[i]] = make_pair(teta, phi);
+            res[final_inverse_permutation[i]] = std::make_pair(teta, phi);
         }
 
         free(measureintermediate);
@@ -495,7 +497,7 @@ private:
         Complex* buffer2 = (Complex*)malloc(sizeof(Complex)*(1llu << localqbits));
         Complex* threadres = (Complex*)malloc(sizeof(Complex)*usable_threads*localqbits*2);
         Complex* measure = (Complex*)malloc(sizeof(Complex)*localqbits*2);
-        vector<thread> threads;
+        std::vector<std::thread> threads;
         Complex temp;
 
         for (int i = 0; i < usable_threads*2*localqbits; i++){
@@ -547,7 +549,7 @@ private:
 
             if (i+1 < number_of_gpu) {GPU_CHECK(hipDeviceSynchronize())};
 
-            swap(buffer1, buffer2);
+            std::swap(buffer1, buffer2);
         }
         //now we can add the results of every threads to end all localqbits
         for (int i = 0; i < localqbits; i++){
@@ -558,7 +560,7 @@ private:
         }
 
         //now we just need to get the spin
-        vector<pair<double,  double>> res(nqbits);
+        std::vector<std::pair<double,  double>> res(nqbits);
         for (int i = 0; i < nqbits; i++){
             Complex val0 = measure[2*i]/pow(SQRT2, (double)nqbits);
             Complex val1 = measure[2*i+1]/pow(SQRT2, (double)nqbits);
@@ -573,7 +575,7 @@ private:
                 teta = atan((val1.norm())/(val0.norm()))/(PI/2);
                 phi = (val1/val0).angle();
             }
-            res[final_inverse_permutation[i]] = make_pair(teta, phi);
+            res[final_inverse_permutation[i]] = std::make_pair(teta, phi);
         }
 
         free(buffer1);
@@ -695,17 +697,17 @@ private:
             }
         }
     }
-    void swapCommand(vector<int> pairset){
+    void swapCommand(std::vector<int> pairset){
         for (int i = 0; i < pairset.size()/2; i++){
             int q1 = pairset[2*i];
             int q2 = pairset[2*i+1];
-            if (q2 < q1) swap(q1, q2);
+            if (q2 < q1) std::swap(q1, q2);
             swapqbitDirectAccess(q1, q2);
             //swapqbitBufferSwap(q1, q2);
         }
     }
     void executeCommand(int groupind){
-        set<int> newqbits = groups[groupind].second;
+        std::set<int> newqbits = groups[groupind].second;
         //we will add some qbits to make use of a block. Ideally, we should have at least 10
         for (int l = 0; l < (nqbits - number_of_gpu_log2); l++){
             if (newqbits.size() >= 8 || newqbits.size() == (nqbits - number_of_gpu_log2)) break;
@@ -713,7 +715,7 @@ private:
             newqbits.insert(l);
         }
         int i,j;
-        vector<int> qbits(newqbits.begin(), newqbits.end());
+        std::vector<int> qbits(newqbits.begin(), newqbits.end());
         if (groupind == 0){
             i = 0;
         } else {
@@ -738,7 +740,7 @@ private:
             int threadnumber = min(1024llu, (1llu << (qbits.size())));
             int blocknumber = min((1llu << 20), (1llu << ((nqbits - number_of_gpu_log2) - qbits.size())));
             if ((1llu << qbits.size()) > totalshared_block){
-                cout << "too much qbits in one group for this gpu's shared memory... I cancel this group's computation" << endl;
+                std::cout << "too much qbits in one group for this gpu's shared memory... I cancel this group's computation" << std::endl;
                 continue;
             }
             executeGroupKernelSharedState<<<dim3(blocknumber), dim3(threadnumber), totalshared_block, 0>>>((nqbits - number_of_gpu_log2), gpu_qbits_states[m], qbits.size(), groupqbitsgpu[m], gpuc[m].gates+i, j-i, totalshared_block - sizeof(Complex)*(1llu << qbits.size()));
@@ -752,5 +754,7 @@ private:
         free(groupqbitsgpu);
     }
 };
+
+}
 
 #endif

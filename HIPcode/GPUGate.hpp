@@ -1,8 +1,11 @@
 #ifndef GPUGATEDONE
 #define GPUGATEDONE
 
-#include "preprocessor.hpp"
-#include "basic_host_types.hpp"
+#include "HIPpreprocessor.hpp"
+#include "../backendagnosticcode/basic_host_types.hpp"
+#include "GPUMatrix.hpp"
+
+namespace Kate {
 
 class GPUGate{
 public:
@@ -190,8 +193,8 @@ public:
                             }
                             sum += matrixdata[(matline << gateqbits) + matcol]*qbitsstateshared[tempind];
                         }
+                        __syncthreads();
                         qbitsstateshared[lineind] = sum;
-                        
                     }
                 }
                 break;
@@ -218,7 +221,7 @@ GPUGate createGPUGate(const Gate& other){
     }
     GPU_CHECK(hipMemcpyHtoD((hipDeviceptr_t)res.qbits, temp, sizeof(int)*res.nbqbits));
     i = 0;
-    for (const auto& el: set<int>(other.qbits.begin(), other.qbits.end())){
+    for (const auto& el: std::set<int>(other.qbits.begin(), other.qbits.end())){
         temp[i] = el;
         i++;
     }
@@ -247,7 +250,7 @@ GPUGate createGPUGateAsync(const Gate& other){
     }
     GPU_CHECK(hipMemcpyHtoDAsync((hipDeviceptr_t)res.qbits, temp, sizeof(int)*res.nbqbits, 0));
     i = 0;
-    for (const auto& el: set<int>(other.qbits.begin(), other.qbits.end())){
+    for (const auto& el: std::set<int>(other.qbits.begin(), other.qbits.end())){
         temp[i] = el;
         i++;
     }
@@ -256,7 +259,7 @@ GPUGate createGPUGateAsync(const Gate& other){
     return res;
 }
 
-GPUGate createGPUGate(int n, vector<int> qbits){
+GPUGate createGPUGate(int n, std::vector<int> qbits){
     GPUGate res;
     res.identifier = 0;
     res.optarg = 0;
@@ -272,7 +275,7 @@ GPUGate createGPUGate(int n, vector<int> qbits){
     }
     GPU_CHECK(hipMemcpyHtoD((hipDeviceptr_t)res.qbits, temp, sizeof(int)*res.nbqbits));
     i = 0;
-    for (const auto& el: set<int>(qbits.begin(), qbits.end())){
+    for (const auto& el: std::set<int>(qbits.begin(), qbits.end())){
         temp[i] = el;
         i++;
     }
@@ -288,9 +291,10 @@ void destroyGPUGate(const GPUGate& el){
 }
 
 Gate createGatefromGPU(const GPUGate& other){
-    Gate res(-1, vector<int>({}));
+    std::vector<int> el;
+    Gate res(-1, el);
     res.identifier = other.identifier;
-    res.densecontent = Matrix<Complex>(other.densecontent);
+    res.densecontent = MatrixfromGPUMatrix(other.densecontent);
     res.qbits.clear();
     int* temp = (int*)malloc(sizeof(int)*other.nbqbits);
     GPU_CHECK(hipMemcpyDtoH(temp, (hipDeviceptr_t)other.qbits, sizeof(int)*other.nbqbits));
@@ -299,6 +303,8 @@ Gate createGatefromGPU(const GPUGate& other){
     }
     free(temp);
     return res;
+}
+
 }
 
 #endif

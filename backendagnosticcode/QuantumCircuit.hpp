@@ -2,23 +2,23 @@
 #define QUANTUMCIRCUITDONE
 
 #include "graphUtil.hpp"
-#include "preprocessor.hpp"
+#include "agnosticpreprocessor.hpp"
 #include "basic_host_types.hpp"
-#include "GPUMatrix.hpp"
-#include "GPUGate.hpp"
+
+namespace Kate {
 
 class QuantumCircuit{
 public:
-    vector<Gate> gate_set_ordered;
+    std::vector<Gate> gate_set_ordered;
     int nqbits = 0;
-    vector<pair<int, set<int>>> groups; //second is current qbit set, first is when to go to next group
-    vector<int> initial_permutation;
-    vector<int> final_inverse_permutation;
-    vector<pair<int, vector<int>>> instructions; //contains either 0 for swap and some qbits (they go by pair) or 1 for compute (just compute next group available)
+    std::vector<std::pair<int, std::set<int>>> groups; //second is current qbit set, first is when to go to next group
+    std::vector<int> initial_permutation;
+    std::vector<int> final_inverse_permutation;
+    std::vector<std::pair<int, std::vector<int>>> instructions; //contains either 0 for swap and some qbits (they go by pair) or 1 for compute (just compute next group available)
     QuantumCircuit(int nqbits){
         this->nqbits = nqbits;
     }
-    QuantumCircuit(const vector<Gate>& gate_set, int nqbits){
+    QuantumCircuit(const std::vector<Gate>& gate_set, int nqbits){
         this->nqbits = nqbits;
         gate_set_ordered = gate_set;
     }
@@ -26,12 +26,12 @@ public:
         //checking qbits
         for (const auto& el: gate.qbits){
             if (el >= nqbits){
-                cout << "the gate you are trying to add contains a qbit not in the circuit: " << el << "/" << nqbits << "!" << endl;
+                std::cout << "the gate you are trying to add contains a qbit not in the circuit: " << el << "/" << nqbits << "!" << std::endl;
                 return;
             }
         }
         if (groups.size() != 0) {
-            cout << "you should not be adding gate after gateGrouping or allocate, this will not work" << endl;
+            std::cout << "you should not be adding gate after gateGrouping or allocate, this will not work" << std::endl;
         }
         gate_set_ordered.push_back(gate);
     }
@@ -40,87 +40,87 @@ public:
         int group = 0;
         if (instructions.size() == 0){
             if (groups.size() != 0){
-                cout << "Group 0 with qbits ";
+                std::cout << "Group 0 with qbits ";
                 for (const auto& el2: groups[group].second){
-                    cout << el2 << " ";
+                    std::cout << el2 << " ";
                 }
-                cout << " : " << endl;
+                std::cout << " : " << std::endl;
             }
             for (auto& el: gate_set_ordered){
                 if (groups.size() != 0){
                     if (group >= groups.size()){
-                        cout << "ERROR while printing the circuit, group vector is bad" << endl;
+                        std::cout << "ERROR while printing the circuit, group vector is bad" << std::endl;
                         return;
                     }
                     if (groups[group].first == i) {
                         group++;
-                        cout << "Group " << group << " with qbits ";
+                        std::cout << "Group " << group << " with qbits ";
                         for (const auto& el2: groups[group].second){
-                            cout << el2 << " ";
+                            std::cout << el2 << " ";
                         }
-                        cout << " : " << endl;
+                        std::cout << " : " << std::endl;
                     }
-                    cout << "   ";
+                    std::cout << "   ";
                     el.print();
                 } else {
-                    cout << "gate " << i << " is ";
+                    std::cout << "gate " << i << " is ";
                     el.print();
                 }
                 i++;
             }
         } else {
-            vector<int> permutation = initial_permutation;
-            vector<int> inversepermutation(nqbits);
+            std::vector<int> permutation = initial_permutation;
+            std::vector<int> inversepermutation(nqbits);
             for (int m = 0; m < nqbits; m++){
                 if (permutation[m] >= nqbits){
-                    cout << "Error while printing: initial permutation work on more qbits than the number in the circuit!" << endl;
+                    std::cout << "Error while printing: initial permutation work on more qbits than the number in the circuit!" << std::endl;
                     return;
                 }
                 inversepermutation[permutation[m]] = m;
             }
 
             //print when we did allocate
-            cout << "-------Quantum-Program-------" << endl;
+            std::cout << "-------Quantum-Program-------" << std::endl;
             for (const auto& instruction: instructions){
                 if (instruction.first == 0){
-                    cout << "SWAP ";
+                    std::cout << "SWAP ";
                     for (int m = 0; m < instruction.second.size()/2; m++){
-                        cout << instruction.second[2*m] << " and " << instruction.second[2*m+1] << ", ";
+                        std::cout << instruction.second[2*m] << " and " << instruction.second[2*m+1] << ", ";
 
-                        swap(inversepermutation[instruction.second[2*m]], inversepermutation[instruction.second[2*m+1]]);
-                        swap(permutation[inversepermutation[instruction.second[2*m]]], permutation[inversepermutation[instruction.second[2*m+1]]]);
+                        std::swap(inversepermutation[instruction.second[2*m]], inversepermutation[instruction.second[2*m+1]]);
+                        std::swap(permutation[inversepermutation[instruction.second[2*m]]], permutation[inversepermutation[instruction.second[2*m+1]]]);
                     }
                 } else{
                     if (permutationtable){
-                        cout << "Permutation table (subjective to real) : " << endl;
+                        std::cout << "Permutation table (subjective to real) : " << std::endl;
                         for (int m = 0; m < nqbits; m++){
-                            cout << m << " ";
-                            if (m < 10) cout << " ";
+                            std::cout << m << " ";
+                            if (m < 10) std::cout << " ";
                         }
-                        cout << endl;
+                        std::cout << std::endl;
                         for (int m = 0; m < nqbits; m++){
-                            cout << inversepermutation[m] << " ";
-                            if (inversepermutation[m] < 10) cout << " ";
+                            std::cout << inversepermutation[m] << " ";
+                            if (inversepermutation[m] < 10) std::cout << " ";
                         }
-                        cout << endl;
-                        cout << endl;
+                        std::cout << std::endl;
+                        std::cout << std::endl;
                     }
 
-                    cout << "EXEC Group " << group << " with qbits ";
+                    std::cout << "EXEC Group " << group << " with qbits ";
                     for (const auto& el2: groups[group].second){
-                        cout << el2 << " ";
+                        std::cout << el2 << " ";
                     }
-                    cout << " : " << endl;
+                    std::cout << " : " << std::endl;
                     for (int j = i; j < groups[group].first; j++){
-                        cout << "   ";
+                        std::cout << "   ";
                         gate_set_ordered[j].print();
                     }
                     i = groups[group].first;
                     group++;
                 }
-                cout << endl << endl;
+                std::cout << std::endl << std::endl;
             }
-            cout << "-----------------------------" << endl;
+            std::cout << "-----------------------------" << std::endl;
         }
     }
     void compileDefault(int numberofgpulog2 = 0, int maxlocalqbitnumber = 300){ //for every optimization that hasnt been done but was necessary, it will use naive things to replace them
@@ -128,7 +128,7 @@ public:
         if (instructions.size() != 0) return; // case where everything has already been done (possible that allocate was optimized but not grouping)
         
         if (maxlocalqbitnumber + numberofgpulog2 < nqbits){
-            cout << "Error: Can't allocate - Too much qbits in the circuit to handle with " << maxlocalqbitnumber << " localqbits and " << (1llu << numberofgpulog2) << " gpus" << endl;
+            std::cout << "Error: Can't allocate - Too much qbits in the circuit to handle with " << maxlocalqbitnumber << " localqbits and " << (1llu << numberofgpulog2) << " gpus" << std::endl;
             return;
         }
         
@@ -136,12 +136,12 @@ public:
         //comment this line to come back to old behaviour
         if (groups.size() == 0){
             for (int i = 0; i < gate_set_ordered.size(); i++){
-                groups.push_back(make_pair(i+1, set<int>(gate_set_ordered[i].qbits.begin(), gate_set_ordered[i].qbits.end())));
+                groups.push_back(std::make_pair(i+1, std::set<int>(gate_set_ordered[i].qbits.begin(), gate_set_ordered[i].qbits.end())));
             }
         }
         //now we need the naive allocation (allocate necessary qbit to the most left qbit)
-        vector<int> permutation(nqbits, 0); //super important
-        vector<int> inversepermutation(nqbits, 0);
+        std::vector<int> permutation(nqbits, 0); //super important
+        std::vector<int> inversepermutation(nqbits, 0);
         for (int i = 0; i < nqbits; i++){
             permutation[i] = i;
             inversepermutation[i] = i;
@@ -150,8 +150,8 @@ public:
         initial_permutation = permutation;
 
         int k = 0;
-        set<int> alreadytaken;
-        vector<pair<int, int>> pairs;
+        std::set<int> alreadytaken;
+        std::vector<std::pair<int, int>> pairs;
         for (int group = 0; group < groups.size(); group++){
             pairs = {};
             alreadytaken = groups[group].second;
@@ -168,29 +168,29 @@ public:
                         break;
                     }
                     //beware that pairs take into account permutations that have already happened!
-                    pairs.push_back(make_pair(permutation[qbit], permutation[newlocal]));
+                    pairs.push_back(std::make_pair(permutation[qbit], permutation[newlocal]));
                     //now let's refresh permutations
-                    swap(inversepermutation[permutation[qbit]], inversepermutation[permutation[newlocal]]);
-                    swap(permutation[qbit], permutation[newlocal]);
+                    std::swap(inversepermutation[permutation[qbit]], inversepermutation[permutation[newlocal]]);
+                    std::swap(permutation[qbit], permutation[newlocal]);
                 }
             }
             if (pairs.size() != 0){
                 //swap operation needed!
-                vector<int> pairsset;
+                std::vector<int> pairsset;
                 for (const auto& pair: pairs){
                     pairsset.push_back(pair.first);
                     pairsset.push_back(pair.second);
                 }
-                instructions.push_back(make_pair(0, pairsset));
+                instructions.push_back(std::make_pair(0, pairsset));
             }
-            instructions.push_back(make_pair(1, vector<int>()));
+            instructions.push_back(std::make_pair(1, std::vector<int>()));
             //we need to modify gates subjective qbits and of the group
-            set<int> temp;
+            std::set<int> temp;
             for (const auto& el: groups[group].second){
                 temp.insert(permutation[el]);
             }
             groups[group].second = temp;
-            vector<int> temp2;
+            std::vector<int> temp2;
             for (int l = k; l < groups[group].first; l++){
                 temp2.clear();
                 for (const auto& qbit: gate_set_ordered[l].qbits){
@@ -203,5 +203,7 @@ public:
         final_inverse_permutation = inversepermutation;
     }
 };
+
+}
 
 #endif

@@ -1,12 +1,9 @@
-#ifndef PREPROCESSORDONE
-#define PREPROCESSORDONE
+#ifndef HIPpreprocessingDone
+#define HIPpreprocessingDone
 
 #ifdef __HIPCC__
-    #define LOWLEVEL
     #include<hip/hip_runtime.h>
-#endif
-
-#ifdef __NVCC__
+#elif defined __NVCC__
     #define LOWLEVEL
     #define hipMemcpyDtoH(x, y, z) cudaMemcpy(x, y, z, cudaMemcpyDeviceToHost)
     #define hipMemcpyHtoD(x, y, z) cudaMemcpy(x, y, z, cudaMemcpyHostToDevice)
@@ -31,19 +28,15 @@
     #define hipSuccess cudaSuccess
 #endif
 
-#ifndef LOWLEVEL
-    #define OPENACC_USED
-    #define __device__  
-    #define __host__  
-#else
-    #define GPU_CHECK(x)\
-err = (x);\
-if (err != hipSuccess)\
+
+hipError_t errhip;
+
+#define GPU_CHECK(x)\
+errhip = (x);\
+if (errhip != hipSuccess)\
 {\
-   	cout << hipGetErrorString(err) << " in " << __FILE__ << " at line " << __LINE__ << endl;\
+   	std::cout << hipGetErrorString(errhip) << " in " << __FILE__ << " at line " << __LINE__ << std::endl;\
 }
-hipError_t err;
-#endif
 
 #include<vector>
 #include<set>
@@ -56,6 +49,7 @@ hipError_t err;
 #include<iostream>
 #include<queue>
 #include<iomanip>
+#include<cstring>
 #include<thread>
 
 #define PI 3.1415926535897932384626433
@@ -68,14 +62,9 @@ hipError_t err;
 #define RX 6
 #define RZ 7
 
-#define THREADNUMBER 64
-#define GPUTHREADSNUM 1024
-
 using std::chrono::high_resolution_clock;
 using std::chrono::duration_cast;
 using std::chrono::duration;
 using std::chrono::milliseconds;
-
-using namespace std;
 
 #endif

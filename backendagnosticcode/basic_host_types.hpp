@@ -1,5 +1,6 @@
 #ifndef BASICIMPORTED
 #define BASICIMPORTED
+namespace Kate {
 
 class Complex{
     public:
@@ -21,7 +22,7 @@ class Complex{
         b = 0;
     }
     void print(){
-        cout << a << " + " << b << "i";
+        std::cout << a << " + " << b << "i";
     }
     __host__
     double norm(){
@@ -77,11 +78,6 @@ class Complex{
     }
 };
 
-__device__ Complex exp(Complex i){
-    double temp = exp(i.a);
-    return Complex(temp*cos(i.b), temp*sin(i.b));
-}
-
 template<typename T>
 class Matrix;
 template<typename T>
@@ -105,11 +101,6 @@ public:
         data = (T*)malloc(sizeof(T)*n*n);
         memcpy(data, other.data, sizeof(T)*n*n);
     }
-    Matrix(const GPUMatrix<T>& other){
-        n = other.n;
-        data = (T*)malloc(sizeof(T)*n*n);
-        GPU_CHECK(hipMemcpyDtoH(data, (hipDeviceptr_t)other.data, sizeof(T)*n*n));
-    }
     ~Matrix(){
         free(data);
     }
@@ -131,9 +122,9 @@ public:
         for (int i = 0; i < n; i++){
             for (int j = 0; j < n; j++){
                 data[i*n+j].print();
-                cout << " | ";
+                std::cout << " | ";
             }
-            cout << endl;
+            std::cout << std::endl;
         }
     }
     T operator()(int a, int b){
@@ -197,95 +188,101 @@ public:
     double optarg2;
     Complex optarg3;
     Matrix<Complex> densecontent;
-    vector<int> qbits;
-    Gate(int identifier, vector<int>& qbits, int optarg = 0, double optarg2 = 0, Complex optarg3 = 0){
+    std::vector<int> qbits;
+    Gate(int identifier, std::vector<int>& qbits, int optarg = 0, double optarg2 = 0, Complex optarg3 = 0){
         this->identifier = identifier;
         this->optarg = optarg;
         this->optarg2 = optarg2;
         this->optarg3 = optarg3;
         if (identifier == 0) {
-            cout << "you are creating a dense matrix without specifying it. Memory error incoming" << endl;
+            std::cout << "you are creating a dense matrix without specifying it. Memory error incoming" << std::endl;
         }
         if (identifier == 2 && qbits.size() != 1){
-            cout << "hadamard is on exactly 1 qbit" << endl;
+            std::cout << "hadamard is on exactly 1 qbit" << std::endl;
         }
         if (identifier == 3 && qbits.size() != 2){
-            cout << "CNOT is on exactly 2 qbits" << endl;
+            std::cout << "CNOT is on exactly 2 qbits" << std::endl;
         }
         if (identifier == 4 && qbits.size() != 2){
-            cout << "Controlled Rk is on exactly 2 qbits" << endl;
+            std::cout << "Controlled Rk is on exactly 2 qbits" << std::endl;
         }
         if (identifier == 5 && qbits.size() != 3){
-            cout << "toffoli is on exactly 3 qbits" << endl;
+            std::cout << "toffoli is on exactly 3 qbits" << std::endl;
         }
         //checking that everyone in qbit is unique
         for (int i = 0; i < qbits.size(); i++){
             for (int j = i+1; j < qbits.size(); j++){
                 if (qbits[i] == qbits[j]){
-                    cout << "Error while creating a gate: a qbit is present twice: " << qbits[i] << endl;
+                    std::cout << "Error while creating a gate: a qbit is present twice: " << qbits[i] << std::endl;
                     return;
                 }
             }
         }
         this->qbits = qbits;
     }
-    Gate(Matrix<Complex>& densecontent, vector<int>& qbits){
+    Gate(Matrix<Complex>& densecontent, std::vector<int>& qbits){
         identifier = 0;
         this->densecontent = densecontent;
         //checking that everyone in qbit is unique
         for (int i = 0; i < qbits.size(); i++){
             for (int j = i+1; j < qbits.size(); j++){
                 if (qbits[i] == qbits[j]){
-                    cout << "Error while creating a gate: a qbit is present twice: " << qbits[i] << endl;
+                    std::cout << "Error while creating a gate: a qbit is present twice: " << qbits[i] << std::endl;
                     return;
                 }
             }
         }
         this->qbits = qbits;
         if ((1llu << qbits.size()) != densecontent.n){
-            cout << "size mismatch dense matrix dimension error" << endl;
+            std::cout << "size mismatch dense matrix dimension error" << std::endl;
         }
     }
-    Gate(int identifier, Matrix<Complex>& densecontent, vector<int>& qbits){
+    Gate(int identifier, Matrix<Complex>& densecontent, std::vector<int>& qbits){
         this->identifier = identifier;
         this->densecontent = densecontent;
         //checking that everyone in qbit is unique
         for (int i = 0; i < qbits.size(); i++){
             for (int j = i+1; j < qbits.size(); j++){
                 if (qbits[i] == qbits[j]){
-                    cout << "Error while creating a gate: a qbit is present twice: " << qbits[i] << endl;
+                    std::cout << "Error while creating a gate: a qbit is present twice: " << qbits[i] << std::endl;
                     return;
                 }
             }
         }
         this->qbits = qbits;
         if ((1llu << qbits.size()) != densecontent.n){
-            cout << "size mismatch dense matrix dimension error" << endl;
+            std::cout << "size mismatch dense matrix dimension error" << std::endl;
         }
     }
     void print(){
-        cout << "Identifier : " << identifier << ", Qbits affected : ";
+        std::cout << "Identifier : " << identifier << ", Qbits affected : ";
         for (const auto& el: qbits){
-            cout << el << " ";
+            std::cout << el << " ";
         }
-        cout << endl;
+        std::cout << std::endl;
     }
 };
 
-set<int> union_elements(set<int>& a, set<int>& b){
-    set<int> c = b;
+std::set<int> union_elements(std::set<int>& a, std::set<int>& b){
+    std::set<int> c = b;
     for (const auto& el: a){
         c.insert(el);
     }
     return c;
 }
 
-set<int> union_elements(set<int>& a, vector<int>& b){
-    set<int> c = a;
+std::set<int> union_elements(std::set<int>& a, std::vector<int>& b){
+    std::set<int> c = a;
     for (const auto& el: b){
         c.insert(el);
     }
     return c;
 }
 
+__device__ Complex exp(Complex i){
+    double temp = std::exp(i.a);
+    return Complex(temp*cos(i.b), temp*sin(i.b));
+}
+
+}
 #endif

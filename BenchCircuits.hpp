@@ -1,13 +1,14 @@
 #ifndef BENCHCIRCUITSDONE
 #define BENCHCIRCUITSDONE
 
-#include "preprocessor.hpp"
-#include "Circuit.hpp"
+#include "Kate.hpp"
+
+namespace Kate{
 
 Circuit QulacsBench(int qbitsNum){
     srand (time(NULL));
-    Circuit circuit(qbitsNum);
-    vector<int> qbits;
+    Kate::Circuit circuit(qbitsNum);
+    std::vector<int> qbits;
     for (int i = 0; i < qbitsNum; i++){
         qbits = {i};
         circuit.appendGate(Gate(Hadamard, qbits, 0));
@@ -42,7 +43,7 @@ Circuit QulacsBench(int qbitsNum){
 
 Circuit QFT(int qbitsNum){
     Circuit res(qbitsNum);
-    vector<int> qbits;
+    std::vector<int> qbits;
 
     for (int i = 0; i < qbitsNum; i++){
         qbits = {i};
@@ -59,7 +60,7 @@ Circuit QFT(int qbitsNum){
 Circuit randomCircuit(int qbitsNum, int depth){
     srand (time(NULL));
     Circuit res(qbitsNum);
-    vector<int> qbits;
+    std::vector<int> qbits;
     Matrix<Complex> mat2((1llu << (2)));
     Matrix<Complex> mat3((1llu << (3)));
     mat2.fill(1.); //the content do not matter for benchmarking
@@ -106,6 +107,8 @@ Circuit randomCircuit(int qbitsNum, int depth){
         }
     }
     return res;
+}
+
 }
 
 #endif
