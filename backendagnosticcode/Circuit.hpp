@@ -164,7 +164,8 @@ public:
                 to_merge.push_back(gate_set_ordered[i]);
             }
 
-            Gate ngate = mergeGate(to_merge);
+            //use CPU because the gate formed is not big enough to use the gpu fully
+            Gate ngate = CPUmergeGate(to_merge);
 
             newcircuit.push_back(ngate);
 
