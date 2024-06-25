@@ -14,6 +14,17 @@ Note that merging gates will now be done on CPU since merged gates are small
 
 Kate is a header that you just need to import into the project to use (adapting the compilation steps)
 
+Qulacs Benchmarcks 25qbits times:
+
+85523 ms on a single ryzen 7940HS thread (no overclock mode) (this is a memory bandwidth bottlenecked problem, so you cannot expect linear scaling with the number of thread)
+
+3577.15 ms on an RTX 4050 mobile
+
+1035.41 ms on an MI200
+
+200 ms on 8xMI200
+
+
 It is currently able to run the qulacs_benchmark over 25 qbits in 3577.15 ms on an RTX 4050 mobile and in 1035.41 ms on an MI200 or in 200ms using 8xMI200x
 
 It uses multiple optimizations using transpilation and memory bandwidth optimizations when running the circuit.
