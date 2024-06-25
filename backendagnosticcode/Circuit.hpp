@@ -163,6 +163,7 @@ public:
             for (int i = f; i < el; i++){
                 to_merge.push_back(gate_set_ordered[i]);
             }
+
             Gate ngate = mergeGate(to_merge);
 
             newcircuit.push_back(ngate);

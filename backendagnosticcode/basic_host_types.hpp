@@ -176,7 +176,13 @@ public:
             data[i] *= other;
         }
     }
-    
+    void transpose(){
+        for (int i = 0; i < n; i++){
+            for (int j = i+1; j < n; j++){
+                std::swap(data[i*n+j], data[j*n+i]);
+            }
+        }
+    }
 };
 
 class GPUGate;
@@ -283,6 +289,25 @@ __device__ Complex exp(Complex i){
     double temp = std::exp(i.a);
     return Complex(temp*cos(i.b), temp*sin(i.b));
 }
+
+class proba_state{ //non entangled
+public:
+    std::vector<std::pair<double, double>> val;
+    proba_state(int nqbits){
+        val.clear();
+        for (int i = 0; i < nqbits; i++){
+            val.push_back(std::make_pair(0, 0));
+        }
+    }
+    proba_state(std::vector<std::pair<double, double>>& v){
+        val = v;
+    }
+    void print(){
+        for (int i = 0; i < val.size(); i++){
+            std::cout << "Qbit " << i << " : teta=" << val[i].first << " , phi=" << val[i].second << std::endl;
+        }
+    }
+};
 
 }
 #endif

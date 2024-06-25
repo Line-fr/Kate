@@ -6,6 +6,17 @@
 #include "backendagnosticcode/basic_host_types.hpp"
 #include "backendagnosticcode/QuantumCircuit.hpp"
 
+#if ((!(defined __HIPCC__)) && (!defined __NVCC__) && (!defined _OPENMP))
+    #include "CPUcode/DeviceInfo.hpp"
+    #define CPUmergeGate mergeGate
+    #define CPUproba_state proba_state
+    #define CPUSimulator Simulator
+#endif
+
+#include "CPUcode/CPUpreprocessor.hpp"
+#include "CPUcode/GateMerger.hpp"
+#include "CPUcode/simulator.hpp"
+
 #if ((defined __HIPCC__) || (defined __NVCC__))
     #include "HIPcode/HIPpreprocessor.hpp"
     #include "HIPcode/DeviceInfo.hpp"
@@ -16,13 +27,8 @@
     #include "HIPcode/simulator.hpp"
     
 #elif defined _OPENMP
-    #include<omp.h>
 
     #warning "openMP is not yet fully supported"
-#else
-//CPU Code (that doesnt exist)
-
-    #warning "CPUonly Kate is not supported"
 #endif
 
 #include "backendagnosticcode/Circuit.hpp"

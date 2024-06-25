@@ -9,25 +9,6 @@
 
 namespace Kate {
 
-class proba_state{ //non entangled
-public:
-    std::vector<std::pair<double, double>> val;
-    proba_state(int nqbits){
-        val.clear();
-        for (int i = 0; i < nqbits; i++){
-            val.push_back(std::make_pair(0, 0));
-        }
-    }
-    proba_state(std::vector<std::pair<double, double>>& v){
-        val = v;
-    }
-    void print(){
-        for (int i = 0; i < val.size(); i++){
-            std::cout << "Qbit " << i << " : teta=" << val[i].first << " , phi=" << val[i].second << std::endl;
-        }
-    }
-};
-
 __global__ void printKernel(Complex* mem){
     size_t tid = threadIdx.x + blockIdx.x*blockDim.x;
     printf("at %zu there is %f\n", tid, mem[tid].a);
@@ -256,7 +237,24 @@ public:
     Complex** cswapBuffer = NULL;
     int swapBufferSizeLog2;
 
+    bool cpumode = false;
+    CPUSimulator cpusim;
+
     Simulator(QuantumCircuit mycircuit, int number_of_gpu, int swapBufferSizeLog2 = 24){
+        int count;
+        if (hipGetDeviceCount(&count) != 0){
+            std::cout << "Warning: Simulator Could not detect a GPU: Fallback on CPU" << std::endl;
+            cpumode = true;
+            CPUSimulator cpusimtest(mycircuit, number_of_gpu, swapBufferSizeLog2);
+            cpusim = cpusimtest;
+            return;
+        } else if (count == 0){
+            std::cout << "Warning: Simulator detected no GPU: Fallback on CPU" << std::endl;
+            cpumode = true;
+            cpusim = CPUSimulator(mycircuit, number_of_gpu, swapBufferSizeLog2);
+            return;
+        }
+
         if (mycircuit.instructions.size() == 0){
             std::cout << "warning: the simulator has been input a circuit that is not compiled. I will compile it naively now" << std::endl;
             mycircuit.compileDefault((int)log2(number_of_gpu), mycircuit.nqbits - (int)log2(number_of_gpu));
@@ -298,6 +296,8 @@ public:
         }
     }
     proba_state execute(bool displaytime = false){// initialization and end will take care of repermuting good values
+        if (cpumode) return cpusim.execute(displaytime);
+        
         auto t1 = high_resolution_clock::now();
         initialize();
         auto t2 = high_resolution_clock::now();
@@ -327,6 +327,8 @@ public:
         return res;
     }
     proba_state execute(proba_state& in, bool displaytime = false){// initialization and end will take care of repermuting good values
+        if (cpumode) return cpusim.execute(in, displaytime);
+        
         auto t1 = high_resolution_clock::now();
         initialize(in);
         auto t2 = high_resolution_clock::now();
@@ -356,6 +358,8 @@ public:
         return res;
     }
     ~Simulator(){
+        if (cpumode) return;
+
         for (int i = 0; i < number_of_gpu; i++){
             if (number_of_gpu > 1) free(cswapBuffer[i]);
             GPU_CHECK(hipSetDevice(i));

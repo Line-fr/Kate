@@ -41,6 +41,17 @@ void mergeGatesKernel(GPUGate returnvalue, GPUQuantumCircuit qc, int* coveredqbi
 }
 
 __host__ Gate mergeGate(std::vector<Gate> to_merge, hipStream_t stream = 0){
+    //if there is no gpu we will do it on CPU
+    int count;
+    if (hipGetDeviceCount(&count) != 0){
+        //std::cout << "Warning: Merging Could not use HIP/CUDA runtime: Fallback on CPU" << std::endl;
+        return CPUmergeGate(to_merge);
+    } else if (count == 0){
+        //std::cout << "Warning: Merging detected no GPU: Fallback on CPU" << std::endl;
+        return CPUmergeGate(to_merge);
+    }
+
+
     //first we need to not forget about reindexing
     int maxseen = 0;
     std::set<int> total_covered;
