@@ -2,10 +2,14 @@ Kate is a project to compute the ouput of quantum computer circuit using tradtio
 for now, there is support for multi-GPU but only on 1 node (no MPI)
 
 to compile using hipcc: hipcc -O3 main.cpp
+
 to compile using nvcc: nvcc -x cu -O3 main.cpp
+
 to compile for CPU Only: g++ -O3 main.cpp (or clang++ -O3 main.cpp)
 
+
 If Kate can't use the GPU, it automatically fallback to the CPU
+
 Note that merging gates will now be done on CPU since merged gates are small
 
 Kate is a header that you just need to import into the project to use (adapting the compilation steps)
