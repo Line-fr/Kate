@@ -271,13 +271,17 @@ private:
             }
         };
 
-        std::vector<std::thread> threads;
-        size_t work_per_thread = groupnumber/std::thread::hardware_concurrency();
-        for (int th = 0; th < std::thread::hardware_concurrency(); th++){
-            threads.emplace_back(threadwork, (int)(th*work_per_thread), (int)std::min((th+1)*work_per_thread, groupnumber));
-        }
-        for (int th = 0; th < std::thread::hardware_concurrency(); th++){
-            threads[th].join();
+        if (groupnumber >= std::thread::hardware_concurrency()){
+            std::vector<std::thread> threads;
+            size_t work_per_thread = groupnumber/std::thread::hardware_concurrency();
+            for (int th = 0; th < std::thread::hardware_concurrency(); th++){
+                threads.emplace_back(threadwork, (int)(th*work_per_thread), (int)std::min((th+1)*work_per_thread, groupnumber));
+            }
+            for (int th = 0; th < std::thread::hardware_concurrency(); th++){
+                threads[th].join();
+            }
+        } else {
+            threadwork(0, groupnumber);
         }
     }
 };
