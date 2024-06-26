@@ -239,35 +239,45 @@ private:
             std::sort(orderedgateqbits[orderedgateqbits.size()-1].begin(), orderedgateqbits[orderedgateqbits.size()-1].end());
         }
 
-        for (size_t groupel = 0; groupel < groupnumber; groupel++){
+        auto threadwork = [&](int g, int h){
+            for (size_t groupel = g; groupel < h; groupel++){
             
-            size_t groupbaseind = 0;
-            for (int m = 0; m <= groupnqbits; m++){
-                groupbaseind += ((groupel&mask_group[m]) << m);
-            } // XXXX-0-XXXXX-0-XX... 0 for all qbit group of the group
-        
-            for (int line = 0; line < (1llu << groupnqbits); line++){
-                size_t finalbaseind = groupbaseind;
-                for (int i = 0; i < groupnqbits; i++){
-                    finalbaseind += ((line >> i)%2) << groupqbits[i];
-                }
+                size_t groupbaseind = 0;
+                for (int m = 0; m <= groupnqbits; m++){
+                    groupbaseind += ((groupel&mask_group[m]) << m);
+                } // XXXX-0-XXXXX-0-XX... 0 for all qbit group of the group
             
-                qbitsstateshared[line] = qbitstate[finalbaseind];
-                //printf("value at line: %i is %f with finalbaseind : %i\n", line, qbitsstateshared[line].a, (int)finalbaseind);
-            }
-
-            for (int gateid = i; gateid < j; gateid++){
-                computeGate(gate_set_ordered[gateid], groupnqbits, qbitsstateshared.data(), bit_to_groupbitnumber.data(), orderedgateqbits[gateid], cache);
-            }
-
-            for (int line = 0; line < (1llu << groupnqbits); line++){
-                size_t finalbaseind = groupbaseind;
-                for (int m = 0; m < groupnqbits; m++){
-                    finalbaseind += ((line >> m)%2) << groupqbits[m];
+                for (int line = 0; line < (1llu << groupnqbits); line++){
+                    size_t finalbaseind = groupbaseind;
+                    for (int i = 0; i < groupnqbits; i++){
+                        finalbaseind += ((line >> i)%2) << groupqbits[i];
+                    }
+                
+                    qbitsstateshared[line] = qbitstate[finalbaseind];
+                    //printf("value at line: %i is %f with finalbaseind : %i\n", line, qbitsstateshared[line].a, (int)finalbaseind);
                 }
-                qbitstate[finalbaseind] = qbitsstateshared[line];
+
+                for (int gateid = i; gateid < j; gateid++){
+                    computeGate(gate_set_ordered[gateid], groupnqbits, qbitsstateshared.data(), bit_to_groupbitnumber.data(), orderedgateqbits[gateid], cache);
+                }
+
+                for (int line = 0; line < (1llu << groupnqbits); line++){
+                    size_t finalbaseind = groupbaseind;
+                    for (int m = 0; m < groupnqbits; m++){
+                        finalbaseind += ((line >> m)%2) << groupqbits[m];
+                    }
+                    qbitstate[finalbaseind] = qbitsstateshared[line];
+                }
             }
-        
+        };
+
+        std::vector<std::thread> threads;
+        size_t work_per_thread = groupnumber/std::thread::hardware_concurrency();
+        for (int th = 0; th < std::thread::hardware_concurrency(); th++){
+            threads.emplace_back(threadwork, (int)(th*work_per_thread), (int)std::min((th+1)*work_per_thread, groupnumber));
+        }
+        for (int th = 0; th < std::thread::hardware_concurrency(); th++){
+            threads[th].join();
         }
     }
 };
