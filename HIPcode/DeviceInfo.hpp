@@ -8,6 +8,7 @@ __global__ void testkernel(){
 }
 
 void printGpuInfo(){
+    std::cout << "CPU Info: " << std::thread::hardware_concurrency() << " threads" << std::endl;
     int count, device;
     hipDeviceProp_t devattr;
 	if (hipGetDeviceCount(&count) != 0){
