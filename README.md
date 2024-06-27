@@ -16,7 +16,7 @@ Kate is a header that you just need to import into the project to use (adapting 
 
 Qulacs Benchmarcks 25qbits times:
 
-85523 ms on a single ryzen 7940HS thread (no overclock mode) (this is a memory bandwidth bottlenecked problem, so you cannot expect linear scaling with the number of thread)
+10086.7 ms on a 7940HS laptop with 6600 MT/s DDR5 RAM (no overclock mode)
 
 3577.15 ms on an RTX 4050 mobile
 
