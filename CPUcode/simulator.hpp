@@ -219,8 +219,6 @@ private:
         for (int i = 0; i < groupnqbits; i++){
             bit_to_groupbitnumber[groupqbits[i]] = i;
         }
-
-        std::vector<Complex> qbitsstateshared((1llu << groupnqbits));
         
         size_t mask_group[64];
         size_t cumulative = 0;
@@ -232,7 +230,6 @@ private:
 
         size_t groupnumber = (1llu << (nqbits - groupnqbits));
 
-        std::vector<Complex> cache;
         std::vector<std::vector<int>> orderedgateqbits;
         for (const auto& gate: gate_set_ordered){
             orderedgateqbits.push_back(gate.qbits);
@@ -240,6 +237,8 @@ private:
         }
 
         auto threadwork = [&](int g, int h){
+            std::vector<Complex> cache;
+            std::vector<Complex> qbitsstateshared((1llu << groupnqbits));
             for (size_t groupel = g; groupel < h; groupel++){
             
                 size_t groupbaseind = 0;
