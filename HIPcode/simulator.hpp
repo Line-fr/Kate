@@ -253,6 +253,9 @@ public:
             cpumode = true;
             cpusim = CPUSimulator(mycircuit, number_of_gpu, swapBufferSizeLog2);
             return;
+        } else if (count < number_of_gpu){
+            std::cout << "Warning: You attempted to use more GPUs than I am able to detect I will use the maximum number of GPU possible but expect errors since you might have compiled the circuit for the wrong number of global qubit" << std::endl;
+            number_of_gpu = (1llu << (int)log2(count));
         }
 
         if (mycircuit.instructions.size() == 0){
