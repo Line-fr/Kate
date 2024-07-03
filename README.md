@@ -7,6 +7,8 @@ to compile using nvcc: nvcc -x cu -O3 main.cpp
 
 to compile for CPU Only: g++ -O3 main.cpp (or clang++ -O3 main.cpp)
 
+to use MPI Kate : mpicxx -O3 main.cpp (beware to include KateMPI.hpp instead of Kate.hpp) Kate MPI only uses CPU
+
 
 If Kate can't use the GPU, it automatically fallback to the CPU
 
