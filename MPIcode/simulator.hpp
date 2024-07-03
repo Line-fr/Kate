@@ -1,11 +1,9 @@
-#ifndef CPUSIMULATORDONE
-#define CPUSIMULATORDONE
+#ifndef SIMULATORDONE
+#define SIMULATORDONE
 
-#include "GateComputing.hpp"
+namespace Kate {
 
-namespace Kate{
-    
-class CPUSimulator{
+class Simulator{
 public:
     //copy from quantum circuit but with the gpu version
     std::vector<std::pair<int, std::set<int>>> groups; //second is current qbit set, first is when to go to next group
@@ -15,15 +13,23 @@ public:
     std::vector<Gate> gate_set_ordered;
     int nqbits = 0;
 
-    Complex* qbitstate = NULL;
+    int number_of_gpu;
+    int number_of_gpu_log2;
+    int localqbits;
+    Complex* gpu_qbits_state;
 
-    CPUSimulator(){
-    }
-    CPUSimulator(QuantumCircuit mycircuit, int number_of_gpu = 0, int swapBufferSizeLog2 = 24){
-        if (number_of_gpu != 0){
-            std::cout << "Warning: Running simulation on CPU" << std::endl;
-        }
-        number_of_gpu = 1;
+    Complex* swapBuffer1 = NULL;
+    Complex* swapBuffer2 = NULL;
+    int swapBufferSizeLog2;
+
+    int rank;
+    MPI_Comm comm;
+
+    Simulator(QuantumCircuit mycircuit, MPI_Comm comm, int swapBufferSizeLog2 = 24){
+        MPI_Comm_rank(comm, &rank);
+        MPI_Comm_size(comm, &number_of_gpu);
+        this->comm = comm;
+
         if (mycircuit.instructions.size() == 0){
             std::cout << "warning: the simulator has been input a circuit that is not compiled. I will compile it naively now" << std::endl;
             mycircuit.compileDefault((int)log2(number_of_gpu), mycircuit.nqbits - (int)log2(number_of_gpu));
@@ -35,40 +41,19 @@ public:
         gate_set_ordered = mycircuit.gate_set_ordered;
         nqbits = mycircuit.nqbits;
 
-        qbitstate = (Complex*)malloc(sizeof(Complex)*(1llu << nqbits));
-        if (qbitstate == NULL){
-            std::cout << "Error: Failed allocation of vector, probably there is not enough memory" << std::endl;
-        }
-    }
-    void operator=(const CPUSimulator& other){        
-        groups = other.groups; //second is current qbit set, first is when to go to next group
-        initial_permutation = other.initial_permutation;
-        final_inverse_permutation = other.final_inverse_permutation;
-        instructions = other.instructions; //contains either 0 for swap and some qbits (they go by pair) or 1 for compute (just compute next group available)
-        gate_set_ordered = other.gate_set_ordered;
-        nqbits = other.nqbits;
-
-        if (qbitstate != NULL) free(qbitstate);
-        qbitstate = (Complex*)malloc(sizeof(Complex)*(1llu << nqbits));
-        if (qbitstate == NULL){
-            std::cout << "Error: Failed allocation of vector, probably there is not enough memory" << std::endl;
-        }
-    }
-    void operator=(const CPUSimulator&& other){
-        groups = other.groups; //second is current qbit set, first is when to go to next group
-        initial_permutation = other.initial_permutation;
-        final_inverse_permutation = other.final_inverse_permutation;
-        instructions = other.instructions; //contains either 0 for swap and some qbits (they go by pair) or 1 for compute (just compute next group available)
-        gate_set_ordered = other.gate_set_ordered;
-        nqbits = other.nqbits;
-
-        if (qbitstate != NULL) free(qbitstate);
-        qbitstate = (Complex*)malloc(sizeof(Complex)*(1llu << nqbits));
-        if (qbitstate == NULL){
-            std::cout << "Error: Failed allocation of vector, probably there is not enough memory" << std::endl;
+        number_of_gpu_log2 = (int)log2(number_of_gpu);
+        number_of_gpu = (1llu << number_of_gpu_log2); //only use power of 2;
+        this->swapBufferSizeLog2 = swapBufferSizeLog2;
+        localqbits = nqbits - number_of_gpu_log2;
+        
+        gpu_qbits_state = (Complex*)malloc(sizeof(Complex)*(1llu << (localqbits)));
+        if (number_of_gpu > 1){
+            swapBuffer1 = (Complex*)malloc(sizeof(Complex)*(1llu << swapBufferSizeLog2));
+            swapBuffer2 = (Complex*)malloc(sizeof(Complex)*(1llu << swapBufferSizeLog2));
         }
     }
     proba_state execute(bool displaytime = false){// initialization and end will take care of repermuting good values
+        
         auto t1 = high_resolution_clock::now();
         initialize();
         auto t2 = high_resolution_clock::now();
@@ -76,7 +61,7 @@ public:
         int groupid = 0;
         for (const auto& instr: instructions){
             if (instr.first == 0){
-                std::cout << "Warning: no swap supported on CPU version" << std::endl;
+                swapCommand(instr.second);
             } else if (instr.first == 1){
                 executeCommand(groupid);
                 groupid++;
@@ -90,7 +75,7 @@ public:
         duration<double, std::milli> ms_double_compute = t3 - t2;
         duration<double, std::milli> ms_double_end = t4 - t3;
 
-        if (displaytime){
+        if (displaytime && rank == 0){
             std::cout << "Initialization time : " << ms_double_init.count() << " ms" << std::endl;
             std::cout << "Computation time : " << ms_double_compute.count() << " ms" << std::endl;
             std::cout << "measurement time : " << ms_double_end.count() << " ms" << std::endl;
@@ -105,7 +90,7 @@ public:
         int groupid = 0;
         for (const auto& instr: instructions){
             if (instr.first == 0){
-                std::cout << "Warning: no swap supported on CPU version" << std::endl;
+                swapCommand(instr.second);
             } else if (instr.first == 1){
                 executeCommand(groupid);
                 groupid++;
@@ -126,15 +111,19 @@ public:
         }
         return res;
     }
-    ~CPUSimulator(){
-        free(qbitstate);
+    ~Simulator(){
+        free(gpu_qbits_state);
+        if (number_of_gpu > 1){
+            free(swapBuffer1);
+            free(swapBuffer2);
+        }
     }
 private:
     void initialize(){
-        qbitstate[0] = 1;
-        for (size_t i = 1; i < (1llu << nqbits); i++){
-            qbitstate[i] = 0;
+        for (int i = 0; i < (1llu << localqbits); i++){
+            gpu_qbits_state[i] = 0;
         }
+        if (rank == 0) gpu_qbits_state[0] = 1;
     }
     void initialize(proba_state& state_input){
         if (state_input.val.size() != nqbits){
@@ -151,25 +140,53 @@ private:
             allstates[initial_permutation[i] + nqbits] = val1;
         }
 
+        Complex offset;
+        offset = Complex(1, 0);
+        for (int j = 0; j < number_of_gpu_log2; j++){
+            offset = offset * (allstates[((rank >> j)%2)*nqbits + j + nqbits-number_of_gpu_log2]);
+        }
+
         Complex temp;
-        for (size_t i = 0; i < (1llu << nqbits); i++){
-            temp = 1.;
-            for (int j = 0; j < nqbits; j++){
+        for (int i = 0; i < (1llu << localqbits); i++){
+            temp = offset;
+            for (int j = 0; j < localqbits; j++){
                 temp *= allstates[((i >> j)%2)*nqbits + j];
             }
-            qbitstate[i] = temp;
+            gpu_qbits_state[i] = temp;
         }
     }
     proba_state measurement(){
-        Complex* measure = (Complex*)malloc(sizeof(Complex)*2*nqbits);
-        for (int i = 0; i < nqbits*2; i++){
-            measure[i] = 0;
+        std::vector<Complex> measure(2*nqbits, 0);
+        std::vector<Complex> buffer(2*nqbits);
+
+        for (int i = 0; i < (1llu << localqbits); i++){
+            for (int qbit = 0; qbit < localqbits; qbit++){
+                measure[qbit*2 + ((i >> qbit)%2)] += gpu_qbits_state[i];
+            }
+        }
+        for (int qbit = localqbits; qbit < nqbits; qbit++){
+            measure[qbit*2 + ((rank >> (qbit-localqbits))%2)] += measure[0] + measure[1];
         }
 
-        for (int i = 0; i < (1llu << nqbits); i++){
-            for (int qbit = 0; qbit < nqbits; qbit++){
-                measure[qbit*2 + ((i >> qbit)%2)] += qbitstate[i];
+        //now we need everyone to posses the added copy of measure! for that, we ll use a very nice algorithm!
+        int step = 1;
+        int lookup = 0;
+        MPI_Request sendack;
+        while (true){
+            lookup = ((rank/step)%2 == 0) ? step : -step;
+            if (rank + lookup < 0) break;
+            if (rank + lookup >= number_of_gpu) break;
+            //we will add our result with rank+lookup peer together
+            MPI_Isend((void*)measure.data(), sizeof(Complex)*2*nqbits, MPI_BYTE, rank+lookup, 0, comm, &sendack);
+            MPI_Recv((void*)buffer.data(), sizeof(Complex)*2*nqbits, MPI_BYTE, rank+lookup, 0, comm, MPI_STATUS_IGNORE);
+            MPI_Wait(&sendack, MPI_STATUS_IGNORE);
+            //now we know that measure is free to use and is ours while buffer is measure of the other we can add them up
+            for (int qbit = 0; qbit < 2*nqbits; qbit++){
+                measure[qbit] += buffer[qbit];
             }
+
+            //and continue until there is no more peer to explore
+            step *= 2;
         }
 
         //now we just need to get the spin
@@ -191,15 +208,50 @@ private:
             res[final_inverse_permutation[i]] = std::make_pair(teta, phi);
         }
 
-        free(measure);
-
         return proba_state(res);
+    }
+    void swapqbitBufferSwap(int q1, int q2){
+        q2 -= nqbits - number_of_gpu_log2;
+        size_t data_to_transfer = (1llu << (localqbits - 1));
+        size_t chunk_size = std::min((size_t)(1llu << swapBufferSizeLog2), data_to_transfer);
+
+        int peer = rank ^ (1 << q2); //thanks the xor for being so convenient
+        int globalindex = (rank >> q2)%2;
+        MPI_Request sendack;
+
+        size_t mask = (1llu << q1) - 1;
+        size_t mask2 = (1llu << (localqbits - 1)) - 1 - mask;
+
+        for (size_t current = 0; current < data_to_transfer; current += chunk_size){
+            //put infos into buffer 1
+            for (int i = current; i < current+chunk_size; i++){
+                size_t value = (i&mask) + ((i&mask2) << 1);
+                swapBuffer1[i] = gpu_qbits_state[value + ((1 - globalindex) << q1)];
+            }
+            //send
+            MPI_Isend((void*)swapBuffer1, sizeof(Complex)*chunk_size, MPI_BYTE, peer, 0, comm, &sendack);
+            MPI_Recv((void*)swapBuffer2, sizeof(Complex)*chunk_size, MPI_BYTE, peer, 0, comm, MPI_STATUS_IGNORE);
+            MPI_Wait(&sendack, MPI_STATUS_IGNORE);
+            //import back to memory
+            for (int i = current; i < current+chunk_size; i++){
+                size_t value = (i&mask) + ((i&mask2) << 1);
+                gpu_qbits_state[value + ((1 - globalindex) << q1)] = swapBuffer2[i];
+            }
+        }
+    }
+    void swapCommand(std::vector<int> pairset){
+        for (int i = 0; i < pairset.size()/2; i++){
+            int q1 = pairset[2*i];
+            int q2 = pairset[2*i+1];
+            if (q2 < q1) std::swap(q1, q2);
+            swapqbitBufferSwap(q1, q2);
+        }
     }
     void executeCommand(int groupind){
         std::set<int> newqbits = groups[groupind].second;
         //we will add some qbits to make use of a block. Ideally, we should have at least 10
-        for (int l = 0; l < (nqbits); l++){
-            if (newqbits.size() >= 14 || newqbits.size() == (nqbits)) break;
+        for (int l = 0; l < (localqbits); l++){
+            if (newqbits.size() >= 14 || newqbits.size() == (localqbits)) break;
             if (newqbits.find(l) != newqbits.end()) continue;
             newqbits.insert(l);
         }
@@ -215,7 +267,7 @@ private:
         int groupnqbits = newqbits.size();
         auto groupqbits = qbits;
 
-        std::vector<int> bit_to_groupbitnumber(nqbits);
+        std::vector<int> bit_to_groupbitnumber(localqbits);
         for (int i = 0; i < groupnqbits; i++){
             bit_to_groupbitnumber[groupqbits[i]] = i;
         }
@@ -226,9 +278,9 @@ private:
             mask_group[i] = (1llu << (groupqbits[i] - i)) - 1 - cumulative;
             cumulative += mask_group[i];
         }
-        mask_group[groupnqbits] = (1llu << (nqbits - groupnqbits)) - 1 - cumulative;
+        mask_group[groupnqbits] = (1llu << (localqbits - groupnqbits)) - 1 - cumulative;
 
-        size_t groupnumber = (1llu << (nqbits - groupnqbits));
+        size_t groupnumber = (1llu << (localqbits - groupnqbits));
 
         std::vector<std::vector<int>> orderedgateqbits;
         for (const auto& gate: gate_set_ordered){
@@ -257,7 +309,7 @@ private:
                         finalbaseind += ((line >> i)%2) << groupqbits[i];
                     }
                 
-                    qbitsstateshared[line] = qbitstate[finalbaseind];
+                    qbitsstateshared[line] = gpu_qbits_state[finalbaseind];
                     //printf("value at line: %i is %f with finalbaseind : %i\n", line, qbitsstateshared[line].a, (int)finalbaseind);
                 }
 
@@ -270,7 +322,7 @@ private:
                     for (int m = 0; m < groupnqbits; m++){
                         finalbaseind += ((line >> m)%2) << groupqbits[m];
                     }
-                    qbitstate[finalbaseind] = qbitsstateshared[line];
+                    gpu_qbits_state[finalbaseind] = qbitsstateshared[line];
                 }
             }
         };

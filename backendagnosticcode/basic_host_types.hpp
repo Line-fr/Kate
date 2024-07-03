@@ -267,6 +267,32 @@ public:
         }
         std::cout << std::endl;
     }
+    std::string transformqcx(){
+        std::string result;
+        if (identifier == Hadamard){
+            result.append("H");
+        } else if (identifier == 0){
+            std::cout << "Warning: Dense Gate are not supported in QCX, gate will be replaced by XX..X" << std::endl;
+            for (int i = 0; i < qbits.size(); i++){
+                result.append("X");
+            }
+        } else if (identifier == CNOT){
+            result.append("CNOT");
+        } else if (identifier == CRk){
+            result.append("U");
+        } else if (identifier == TOFFOLI){
+            result.append("TOFFOLI");
+        }
+        result.append(" ");
+        for (const auto& qbit: qbits){
+            result.append(std::to_string(qbit));
+            result.append(" ");
+        }
+        if (identifier == CRk){
+            result.append(std::to_string(optarg));
+        }
+        return result;
+    }
 };
 
 std::set<int> union_elements(std::set<int>& a, std::set<int>& b){

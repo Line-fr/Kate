@@ -36,12 +36,17 @@ Gate CPUmergeGate(std::vector<Gate> to_merge){
         }
     }
 
+    int maxgatesize = 0;
+    for (const auto& gate: to_merge){
+        if (gate.qbits.size() > maxgatesize) maxgatesize = gate.qbits.size();
+    }
+
     for (int i = 0; i < (1llu << total_covered.size());i++){
         //i is matrix line representing column in the computation here
         for (const auto& gate:to_merge){
             std::vector<int> orderedgateqbits = gate.qbits;
             std::sort(orderedgateqbits.begin(), orderedgateqbits.end());
-            computeGate(gate, total_covered.size(), newdense.data+i*newdense.n, bit_to_groupbitnumber.data(), orderedgateqbits, std::vector<Complex>());
+            computeGate(gate, total_covered.size(), newdense.data+i*newdense.n, bit_to_groupbitnumber.data(), orderedgateqbits, std::vector<Complex>((1llu << maxgatesize)));
         }
     }
 

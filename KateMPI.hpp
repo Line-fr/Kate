@@ -1,35 +1,24 @@
 #ifndef PREPROCESSORDONE
 #define PREPROCESSORDONE
 
-#define INITIALIZER
-#define FINALIZER
+#include<mpi.h>
+
+#define INITIALIZER MPI_Init(&argc, &argv);
+#define FINALIZER MPI_Finalize();
 
 #include "backendagnosticcode/agnosticpreprocessor.hpp"
 #include "backendagnosticcode/graphUtil.hpp"
 #include "backendagnosticcode/basic_host_types.hpp"
 #include "backendagnosticcode/QuantumCircuit.hpp"
 
-#if ((!(defined __HIPCC__)) && (!defined __NVCC__))
-    #include "CPUcode/DeviceInfo.hpp"
-    #define CPUmergeGate mergeGate
-    #define CPUproba_state proba_state
-    #define CPUSimulator Simulator
-#endif
-
 #include "CPUcode/CPUpreprocessor.hpp"
+#include "CPUcode/GateComputing.hpp"
 #include "CPUcode/GateMerger.hpp"
-#include "CPUcode/simulator.hpp"
 
-#if ((defined __HIPCC__) || (defined __NVCC__))
-    #include "HIPcode/HIPpreprocessor.hpp"
-    #include "HIPcode/DeviceInfo.hpp"
-    #include "HIPcode/GateMerger.hpp"
-    #include "HIPcode/GPUMatrix.hpp"
-    #include "HIPcode/GPUGate.hpp"
-    #include "HIPcode/GPUQuantumCircuit.hpp"
-    #include "HIPcode/simulator.hpp"
-    
-#endif
+#include "MPIcode/MPIpreprocessor.hpp"
+#include "MPIcode/DeviceInfo.hpp"
+
+#include "MPIcode/simulator.hpp"
 
 #include "backendagnosticcode/Circuit.hpp"
 

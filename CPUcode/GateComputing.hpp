@@ -4,7 +4,6 @@
 namespace Kate{
 
 void computeGate(Gate gate, int nqbits, Complex* qbitsstateshared, int* bit_to_groupbitnumber, std::vector<int> ordered_qbits, std::vector<Complex> cache){
-    cache.resize((1llu << gate.qbits.size()));
     switch(gate.identifier){
         case TOFFOLI: {
             size_t to_cover = (1llu << (nqbits - 3));

@@ -1,5 +1,5 @@
-#ifndef CPUPREPROCESSINGDONE
-#define CPUPREPROCESSINGDONE
+#ifndef MPIpreprocessingDone
+#define MPIpreprocessingDone
 
 #include<vector>
 #include<set>
@@ -24,5 +24,10 @@
 #define TOFFOLI 5
 #define RX 6
 #define RZ 7
+
+using std::chrono::high_resolution_clock;
+using std::chrono::duration_cast;
+using std::chrono::duration;
+using std::chrono::milliseconds;
 
 #endif

@@ -19,6 +19,8 @@
 #include<iomanip>
 #include<cstring>
 #include<thread>
+#include<fstream>
+#include<string>
 
 #define PI 3.1415926535897932384626433
 #define SQRT2 1.4142135623730951

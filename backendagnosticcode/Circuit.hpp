@@ -623,6 +623,18 @@ public:
 
         final_inverse_permutation = inversepermutation;
     }
+    void exportqcx(std::string filename){
+        std::ofstream file(filename);
+        if (!file){
+            std::cout << "Error: Could not open " << filename << " to write qcx file" << std::endl;
+            return;
+        }
+        file << "QUBITS " << nqbits << std::endl;
+        for (auto& gate: gate_set_ordered){
+            file << gate.transformqcx() << std::endl;
+        }
+        file << "BEGIN MEASUREMENT";
+    }
 };
 
 }
