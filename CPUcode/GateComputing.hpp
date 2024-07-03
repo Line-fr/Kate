@@ -101,29 +101,27 @@ void computeGate(Gate gate, int nqbits, Complex* qbitsstateshared, int* bit_to_g
                 for (int i = 0; i <= gateqbits; i++){
                     baseind += ((line&masks[i]) << i);
                 }
-                for (size_t matline = 0; matline < (1llu << gateqbits); matline++){
-                    size_t tempind;
-                    size_t lineind = baseind;
+                size_t lineind;
+                //put the new little vector in cache
+                for (int subline = 0; subline < (1llu << gateqbits); subline++){
+                    lineind = baseind;
                     for (int i = 0; i < gateqbits; i++){
-                        lineind += ((matline >> i)%2) << bit_to_groupbitnumber[gate.qbits[i]];
+                        lineind += ((subline >> i)%2) << bit_to_groupbitnumber[gate.qbits[i]];
                     }
-                    Complex sum = 0;
-                    for (size_t matcol = 0; matcol < (1llu << gateqbits); matcol++){
-
-                        tempind = baseind;
-                        for (int i = 0; i < gateqbits; i++){
-                            tempind += ((matcol >> i)%2) << bit_to_groupbitnumber[gate.qbits[i]];
-                        }
-                        sum += matrixdata[(matline << gateqbits) + matcol]*qbitsstateshared[tempind];
-                    }
-                    cache[matline] = sum;
+                    cache[subline] = qbitsstateshared[lineind];
                 }
-                for (size_t matline = 0; matline < (1llu << gateqbits); matline++){
-                    size_t lineind = baseind;
+                //do the matrix product using cache+(1llu << gateqbits)
+                for (int matline = 0; matline < (1 << gateqbits); matline++){
+                    Complex sum = 0;
+                    for (int matcol = 0; matcol < (1 << gateqbits); matcol++){
+                        sum += matrixdata[(matline << gateqbits) + matcol]*cache[matcol];
+                    }
+
+                    lineind = baseind;
                     for (int i = 0; i < gateqbits; i++){
                         lineind += ((matline >> i)%2) << bit_to_groupbitnumber[gate.qbits[i]];
                     }
-                    qbitsstateshared[lineind] = cache[matline];
+                    qbitsstateshared[lineind] = sum;
                 }
             }
         }
