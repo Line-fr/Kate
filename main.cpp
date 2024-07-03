@@ -1,4 +1,5 @@
-#include "KateMPI.hpp"
+#include "Kate.hpp"
+//#include "KateMPI.hpp"
 #include "BenchCircuits.hpp"
 
 using namespace Kate;
