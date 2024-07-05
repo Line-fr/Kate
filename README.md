@@ -1,5 +1,5 @@
 Kate is a project to compute the ouput of quantum computer circuit using tradtionnal GPUs with the backend HIP or CUDA (coded in HIP with cuda translation via preprocessing).
-Kate support execution on multi nodes via MPI (both on CPU or GPU)
+Kate support execution on multi nodes via MPI (both on CPU or GPU) but also with multiple GPU on one node without MPI
 
 **Compilation**
 
