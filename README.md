@@ -3,7 +3,7 @@ Kate support execution on multi nodes via MPI (both on CPU or GPU)
 
 **Compilation**
 
-to compile using hipcc: hipcc -O3 main.cpp
+to compile using hipcc: hipcc -O3 main.cpp (beware to include Kate.hpp and not KateMPI.hpp)
 
 to compile using nvcc: nvcc -x cu -O3 main.cpp
 
