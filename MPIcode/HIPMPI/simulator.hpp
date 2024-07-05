@@ -479,9 +479,6 @@ private:
         int globalindex = (rank >> q2)%2;
         MPI_Request sendack;
 
-        size_t mask = (1llu << q1) - 1;
-        size_t mask2 = (1llu << (localqbits - 1)) - 1 - mask;
-
         int threadnumber = min(1024llu, (unsigned long long)(chunk_size));
         int blocknumber = min((1llu << 12), (unsigned long long)(chunk_size)/threadnumber);
         int work_per_thread = max(1llu, (unsigned long long)chunk_size/threadnumber/blocknumber);

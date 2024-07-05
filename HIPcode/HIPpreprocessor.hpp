@@ -3,7 +3,7 @@
 
 #ifdef __HIPCC__
     #include<hip/hip_runtime.h>
-#elif defined __NVCC__
+#elif defined __CUDACC__
     #define LOWLEVEL
     #define hipMemcpyDtoH(x, y, z) cudaMemcpy(x, y, z, cudaMemcpyDeviceToHost)
     #define hipMemcpyHtoD(x, y, z) cudaMemcpy(x, y, z, cudaMemcpyHostToDevice)

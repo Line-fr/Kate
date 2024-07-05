@@ -1,7 +1,7 @@
 #ifndef AGNOPREPROCESSORDONE
 #define AGNOPREPROCESSORDONE
 
-#if ! ((defined __NVCC__) || (defined __HIPCC__))
+#if ! ((defined __CUDACC__) || (defined __HIPCC__))
     #define __device__  
     #define __host__  
 #endif

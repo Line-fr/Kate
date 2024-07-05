@@ -9,7 +9,7 @@
 #include "backendagnosticcode/basic_host_types.hpp"
 #include "backendagnosticcode/QuantumCircuit.hpp"
 
-#if ((!(defined __HIPCC__)) && (!defined __NVCC__))
+#if ((!(defined __HIPCC__)) && (!defined __CUDACC__))
     #include "CPUcode/DeviceInfo.hpp"
     #define CPUmergeGate mergeGate
     #define CPUproba_state proba_state
@@ -20,7 +20,7 @@
 #include "CPUcode/GateMerger.hpp"
 #include "CPUcode/simulator.hpp"
 
-#if ((defined __HIPCC__) || (defined __NVCC__))
+#if ((defined __HIPCC__) || (defined __CUDACC__))
     #include "HIPcode/HIPpreprocessor.hpp"
     #include "HIPcode/DeviceInfo.hpp"
     #include "HIPcode/GateMerger.hpp"
