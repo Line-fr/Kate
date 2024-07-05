@@ -6,19 +6,34 @@
 #define INITIALIZER MPI_Init(&argc, &argv);
 #define FINALIZER MPI_Finalize();
 
+
 #include "backendagnosticcode/agnosticpreprocessor.hpp"
 #include "backendagnosticcode/graphUtil.hpp"
 #include "backendagnosticcode/basic_host_types.hpp"
 #include "backendagnosticcode/QuantumCircuit.hpp"
 
+#if ((!(defined __HIPCC__)) && (!defined __NVCC__))
+    #include "MPIcode/CPUMPI/DeviceInfo.hpp"
+    #define CPUmergeGate mergeGate
+    #define CPUproba_state proba_state
+    #define CPUSimulator Simulator
+#endif
+
 #include "CPUcode/CPUpreprocessor.hpp"
 #include "CPUcode/GateComputing.hpp"
 #include "CPUcode/GateMerger.hpp"
+#include "MPIcode/CPUMPI/simulator.hpp"
 
-#include "MPIcode/MPIpreprocessor.hpp"
-#include "MPIcode/DeviceInfo.hpp"
-
-#include "MPIcode/simulator.hpp"
+#if ((defined __HIPCC__) || (defined __NVCC__))
+    #include "HIPcode/HIPpreprocessor.hpp"
+    #include "MPIcode/HIPMPI/DeviceInfo.hpp"
+    #include "HIPcode/GPUMatrix.hpp"
+    #include "HIPcode/GPUGate.hpp"
+    #include "HIPcode/GPUQuantumCircuit.hpp"
+    #include "HIPcode/GateMerger.hpp"
+    #include "MPIcode/HIPMPI/simulator.hpp"
+    
+#endif
 
 #include "backendagnosticcode/Circuit.hpp"
 
