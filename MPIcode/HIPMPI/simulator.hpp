@@ -1,12 +1,6 @@
 #ifndef SIMULATORDONE
 #define SIMULATORDONE
 
-#include "HIPpreprocessor.hpp"
-#include "../backendagnosticcode/QuantumCircuit.hpp"
-#include "GPUQuantumCircuit.hpp"
-#include "../backendagnosticcode/basic_host_types.hpp"
-#include "../backendagnosticcode/Circuit.hpp"
-
 namespace Kate {
 
 __global__ void printKernel(Complex* mem){
@@ -229,6 +223,7 @@ public:
 
     int number_of_gpu;
     int number_of_gpu_log2;
+    int localqbits;
     Complex* gpu_qbits_state;
     GPUQuantumCircuit gpuc; //one for each device
 
@@ -275,10 +270,11 @@ public:
         nqbits = mycircuit.nqbits;
 
         number_of_gpu_log2 = (int)log2(number_of_gpu);
+        localqbits = nqbits - number_of_gpu_log2;
         
         this->swapBufferSizeLog2 = swapBufferSizeLog2;
         
-        GPU_CHECK(hipMalloc(gpu_qbits_state, sizeof(Complex)*(1llu << (nqbits - number_of_gpu_log2))));
+        GPU_CHECK(hipMalloc(&gpu_qbits_state, sizeof(Complex)*(1llu << (nqbits - number_of_gpu_log2))));
         if (number_of_gpu > 1) {GPU_CHECK(hipMalloc(&swapBuffer1, sizeof(Complex)*(1llu << swapBufferSizeLog2)))};
         if (number_of_gpu > 1) {GPU_CHECK(hipMalloc(&swapBuffer2, sizeof(Complex)*(1llu << swapBufferSizeLog2)))};
         gpuc = createGPUQuantumCircuitAsync(mycircuit);
@@ -332,6 +328,7 @@ public:
                 groupid++;
             }
         }
+
         auto t3 = high_resolution_clock::now();
         auto res = measurement();
         auto t4 = high_resolution_clock::now();
@@ -355,16 +352,16 @@ public:
             GPU_CHECK(hipFree(swapBuffer1));
             GPU_CHECK(hipFree(swapBuffer2));
         }
-        destroyGPUQuantumCircuit(gpuc[i]);
+        destroyGPUQuantumCircuit(gpuc);
     }
 private:
     void initialize(){
         int threadnumber = min(1024llu, (1llu << (nqbits - number_of_gpu_log2)));
         int blocknumber = min((1llu << 20), (1llu << (nqbits - number_of_gpu_log2))/threadnumber);
         if (rank == 0){
-            initialize_state<<<dim3(blocknumber), dim3(threadnumber), 0, 0>>>((nqbits - number_of_gpu_log2), gpu_qbits_states[i], 0);
+            initialize_state<<<dim3(blocknumber), dim3(threadnumber), 0, 0>>>((nqbits - number_of_gpu_log2), gpu_qbits_state, 0);
         } else {
-            initialize_state0<<<dim3(blocknumber), dim3(threadnumber), 0, 0>>>((nqbits - number_of_gpu_log2), gpu_qbits_states[i]);
+            initialize_state0<<<dim3(blocknumber), dim3(threadnumber), 0, 0>>>((nqbits - number_of_gpu_log2), gpu_qbits_state);
         }
         GPU_CHECK(hipDeviceSynchronize());
     }
@@ -425,16 +422,7 @@ private:
             temp += measureintermediate[j*2*(nqbits-number_of_gpu_log2) + 1];
         }
         for (int j = 0; j < number_of_gpu_log2; j++){
-            measure[((i >> j)%2) + 2*(j+(nqbits - number_of_gpu_log2))] += temp;
-        }
-
-        for (int i = 0; i < (1llu << localqbits); i++){
-            for (int qbit = 0; qbit < localqbits; qbit++){
-                measure[qbit*2 + ((i >> qbit)%2)] += gpu_qbits_state[i];
-            }
-        }
-        for (int qbit = localqbits; qbit < nqbits; qbit++){
-            measure[qbit*2 + ((rank >> (qbit-localqbits))%2)] += measure[0] + measure[1];
+            measure[((rank >> j)%2) + 2*(j+(nqbits - number_of_gpu_log2))] += temp;
         }
 
         free(measureintermediate);
@@ -501,14 +489,14 @@ private:
         for (size_t current = 0; current < data_to_transfer; current += chunk_size){
             //put infos into buffer 1
             swapqbitKernelIndirectAccessEXTRACT<<<dim3(blocknumber), dim3(threadnumber), 0, 0>>>((nqbits - number_of_gpu_log2), q1, (1 - globalindex), gpu_qbits_state, swapBuffer1, current, work_per_thread);
-            hipDeviceSynchronize();
+            GPU_CHECK(hipDeviceSynchronize());
             //send
             MPI_Isend((void*)swapBuffer1, sizeof(Complex)*chunk_size, MPI_BYTE, peer, 0, comm, &sendack);
             MPI_Recv((void*)swapBuffer2, sizeof(Complex)*chunk_size, MPI_BYTE, peer, 0, comm, MPI_STATUS_IGNORE);
             MPI_Wait(&sendack, MPI_STATUS_IGNORE);
             //import back to memory
             swapqbitKernelIndirectAccessIMPORT<<<dim3(blocknumber), dim3(threadnumber), 0, 0>>>((nqbits - number_of_gpu_log2), q1, (1 - globalindex), gpu_qbits_state, swapBuffer2, current, work_per_thread);
-            hipDeviceSynchronize();
+            GPU_CHECK(hipDeviceSynchronize());
         }
     }
     void swapCommand(std::vector<int> pairset){
@@ -549,7 +537,6 @@ private:
         int blocknumber = std::min((1llu << 20), (1llu << ((nqbits - number_of_gpu_log2) - qbits.size())));
         if ((1llu << qbits.size()) > totalshared_block){
             std::cout << "too much qbits in one group for this gpu's shared memory... I cancel this group's computation" << std::endl;
-            continue;
         }
         executeGroupKernelSharedState<<<dim3(blocknumber), dim3(threadnumber), totalshared_block, 0>>>((nqbits - number_of_gpu_log2), gpu_qbits_state, qbits.size(), groupqbitsgpu, gpuc.gates+i, j-i, totalshared_block - sizeof(Complex)*(1llu << qbits.size()));
 

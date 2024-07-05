@@ -127,7 +127,7 @@ public:
         return res;
     }
     ~CPUSimulator(){
-        free(qbitstate);
+        if (qbitstate != NULL) free(qbitstate);
     }
 private:
     void initialize(){

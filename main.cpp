@@ -1,5 +1,5 @@
-#include "Kate.hpp"
-//#include "KateMPI.hpp"
+//#include "Kate.hpp"
+#include "KateMPI.hpp"
 #include "BenchCircuits.hpp"
 
 using namespace Kate;
@@ -16,8 +16,8 @@ int main(int argc, char** argv){
 
     printGpuInfo();
     
-    //int rank;
-    //MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    int rank;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
     Circuit circuit = QulacsBench(qbitnumber);
     //Circuit circuit(qbitnumber);
@@ -29,16 +29,17 @@ int main(int argc, char** argv){
     //circuit.compileOPT(5, 1, 9, gpulog2);
     circuit.gateScheduling();
     //circuit.gateFusion(5 , 1);
-    circuit.gateGrouping(12);
-    circuit.allocate(gpulog2);
+    circuit.gateGrouping(min(12, qbitnumber - gpulog2));
+    //circuit.allocate(gpulog2);
+    circuit.compileDefault(gpulog2);
     
     //if (rank == 0) circuit.print();
     auto res = Simulator(circuit, MPI_COMM_WORLD).execute(true);
-    //if (rank == 0) res.print();
+    if (rank == 0) res.print();
 
     //circuit.exportqcx("testcircuit.qcx");
 
-    //if (rank == 0) cout << "done" << endl;
+    if (rank == 0) cout << "done" << endl;
 
     FINALIZER
 

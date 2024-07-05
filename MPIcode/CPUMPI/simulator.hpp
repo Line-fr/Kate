@@ -13,17 +13,20 @@ public:
     std::vector<Gate> gate_set_ordered;
     int nqbits = 0;
 
-    int number_of_gpu;
-    int number_of_gpu_log2;
-    int localqbits;
-    Complex* gpu_qbits_state;
+    int number_of_gpu = 0;
+    int number_of_gpu_log2 = 0;
+    int localqbits = 0;
+    Complex* gpu_qbits_state = NULL;
 
     Complex* swapBuffer1 = NULL;
     Complex* swapBuffer2 = NULL;
-    int swapBufferSizeLog2;
+    int swapBufferSizeLog2 = 24;
 
-    int rank;
-    MPI_Comm comm;
+    int rank = 0;
+    MPI_Comm comm = MPI_COMM_WORLD;
+
+    CPUSimulator(){
+    }
 
     CPUSimulator(QuantumCircuit mycircuit, MPI_Comm comm, int swapBufferSizeLog2 = 24){
         MPI_Comm_rank(comm, &rank);
@@ -112,6 +115,7 @@ public:
         return res;
     }
     ~CPUSimulator(){
+        if (gpu_qbits_state == NULL) return;
         free(gpu_qbits_state);
         if (number_of_gpu > 1){
             free(swapBuffer1);
