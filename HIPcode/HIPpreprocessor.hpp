@@ -26,6 +26,7 @@
     #define hipStreamAddCallback cudaStreamAddCallback
     #define hipDeviceEnablePeerAccess cudaDeviceEnablePeerAccess
     #define hipSuccess cudaSuccess
+    #define hipGetLastError cudaGetLastError
 #endif
 
 

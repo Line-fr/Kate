@@ -751,6 +751,10 @@ private:
                 continue;
             }
             executeGroupKernelSharedState<<<dim3(blocknumber), dim3(threadnumber), totalshared_block, 0>>>((nqbits - number_of_gpu_log2), gpu_qbits_states[m], qbits.size(), groupqbitsgpu[m], gpuc[m].gates+i, j-i, totalshared_block - sizeof(Complex)*(1llu << qbits.size()));
+            hipError_t kernelret = hipGetLastError();
+            if (kernelret != hipSuccess){
+                std::cout << "Error while trying to compute a group, the  kernel refused to launch for this reason : " << std::endl << hipGetErrorString(kernelret) << std::endl << "It could be due to a lack of shared cache, please reduce the size of each group" << std::endl;
+            }
         }
 
         for (int m = 0; m < number_of_gpu; m++){
