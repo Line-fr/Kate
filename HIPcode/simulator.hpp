@@ -743,7 +743,7 @@ private:
             int device;
             GPU_CHECK(hipGetDevice(&device));
 	        GPU_CHECK(hipGetDeviceProperties(&devattr, device));
-            size_t totalshared_block = devattr.sharedMemPerBlock;
+            size_t totalshared_block = devattr.sharedMemPerBlock/4;
             int threadnumber = min(1024llu, (1llu << (qbits.size())));
             int blocknumber = min((1llu << 20), (1llu << ((nqbits - number_of_gpu_log2) - qbits.size())));
             if ((1llu << qbits.size()) > totalshared_block){

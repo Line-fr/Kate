@@ -96,7 +96,7 @@ __host__ Gate mergeGate(std::vector<Gate> to_merge, hipStream_t stream = 0){
     int device;
     GPU_CHECK(hipGetDevice(&device));
 	GPU_CHECK(hipGetDeviceProperties(&devattr, device));
-    size_t totalshared_block = devattr.sharedMemPerBlock;
+    size_t totalshared_block = devattr.sharedMemPerBlock/4;
     //only 1 gpu for now. If gpucircuit has less than 5 qbits, we are sad but it should work?
     //ideally, we should do it on CPU when nqbits < 8
     mergeGatesKernel<<<dim3((1llu << gpucircuit.nqbits)), dim3(min((int)1024, (int)(1llu << gpucircuit.nqbits))), totalshared_block, stream>>>(resGPU, gpucircuit, coveredqbits_ordered, 0, 0, (totalshared_block - (1llu << gpucircuit.nqbits))/sizeof(Complex));
