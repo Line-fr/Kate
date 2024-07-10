@@ -341,7 +341,7 @@ public:
         ms_double = t2 - t1;
         measuretime = ms_double.count();
 
-        if (displaytime){
+        if (displaytime && rank == 0){
             double swaptime = slowswaptime+fastswaptime;
             int swapnumber = slowswapnumber + fastswapnumber;
             std::cout << "Initialization/Measurement : " << inittime << " / " << measuretime << " ms" << std::endl;
@@ -408,7 +408,7 @@ public:
         ms_double = t2 - t1;
         measuretime = ms_double.count();
 
-        if (displaytime){
+        if (displaytime && rank == 0){
             double swaptime = slowswaptime+fastswaptime;
             int swapnumber = slowswapnumber + fastswapnumber;
             std::cout << "Initialization/Measurement : " << inittime << " / " << measuretime << " ms" << std::endl;
