@@ -237,6 +237,8 @@ public:
     int rank;
     MPI_Comm comm;
 
+    int slowqbitsnumber = 0;
+
     Simulator(QuantumCircuit mycircuit, MPI_Comm comm, int swapBufferSizeLog2 = 24){
         MPI_Comm_rank(comm, &rank);
         MPI_Comm_size(comm, &number_of_gpu);
@@ -256,6 +258,7 @@ public:
             return;
         } 
 
+        slowqbitsnumber = std::max(0, (int)log2(number_of_gpu/count));
         GPU_CHECK(hipSetDevice(rank%count)) //choice of our gpuid
 
         if (mycircuit.instructions.size() == 0){
@@ -283,64 +286,137 @@ public:
     }
     proba_state execute(bool displaytime = false){// initialization and end will take care of repermuting good values
         if (cpumode) return cpusim.execute(displaytime);
+
+        double inittime = -1;
+        double measuretime = -1;
+        double groupcomputetime = 0;
+        int groupnumber = 0;
+        double slowswaptime = 0;
+        double fastswaptime = 0;
+        int fastswapnumber = 0;
+        int slowswapnumber = 0;
+
+        int slowqbitnum = size/;
         
         auto t1 = high_resolution_clock::now();
-        initialize();
         auto t2 = high_resolution_clock::now();
+        duration<double, std::milli> ms_double = t2 - t1;
+
+        t1 = high_resolution_clock::now();
+        initialize();
+        t2 = high_resolution_clock::now();
+        ms_double = t2 - t1;
+        inittime = ms_double.count();
 
         int groupid = 0;
         for (const auto& instr: instructions){
+            t1 = high_resolution_clock::now();
             if (instr.first == 0){
                 swapCommand(instr.second);
             } else if (instr.first == 1){
                 executeCommand(groupid);
                 groupid++;
             }
+            t2 = high_resolution_clock::now();
+            ms_double = t2 - t1;
+            if (instr.first == 0){
+                for (const auto& qbit: instr.second){
+                    if (qbit < localqbits) continue;
+                    if (qbit < nqbits-slowqbitsnumber) {
+                        fastswapnumber++;
+                        fastswaptime += ms_doubule.count();
+                        continue;
+                    }
+                    slowswapnumber++;
+                    slowswaptime += ms_double.count();
+
+                }
+            } else {
+                groupcomputetime += ms_double.count();
+                groupnumber++;
+            }
         }
-        auto t3 = high_resolution_clock::now();
+
+        t1 = high_resolution_clock::now();
         auto res = measurement();
-        auto t4 = high_resolution_clock::now();
+        t2 = high_resolution_clock::now();
+        ms_double = t2 - t1;
+        measuretime = ms_double.count();
 
-        duration<double, std::milli> ms_double_init = t2 - t1;
-        duration<double, std::milli> ms_double_compute = t3 - t2;
-        duration<double, std::milli> ms_double_end = t4 - t3;
-
-        if (displaytime && rank == 0){
-            std::cout << "Initialization time : " << ms_double_init.count() << " ms" << std::endl;
-            std::cout << "Computation time : " << ms_double_compute.count() << " ms" << std::endl;
-            std::cout << "measurement time : " << ms_double_end.count() << " ms" << std::endl;
+        if (displaytime){
+            int swaptime = slowswaptime+fastswaptime;
+            std::cout << "Initialization/Measurement : " << inittime << " / " << measuretime << " ms" << std::endl;
+            std::cout << "Total computing time : " << swaptime+groupcomputetime << " ms with swap% : " << 100*swaptime/(swaptime+groupcomputetime) << "%" << std::endl;
+            std::cout << "Average swap time : " << swaptime/swapnumber << " ms and average group time : " << groupcomputetime/groupnumber << " ms" << std::endl;
+            std::cout << "Number swap fast/slow : " << fastswapnumber << "/" << slowqbitsnumber << " Time swap fast/slow : " << fastswaptime << " / " << slowswaptime << " ms" << std::endl;
         }
         return res;
     }
     proba_state execute(proba_state& in, bool displaytime = false){// initialization and end will take care of repermuting good values
-        if (cpumode) return cpusim.execute(in, displaytime);
+        if (cpumode) return cpusim.execute(displaytime);
+
+        double inittime = -1;
+        double measuretime = -1;
+        double groupcomputetime = 0;
+        int groupnumber = 0;
+        double slowswaptime = 0;
+        double fastswaptime = 0;
+        int fastswapnumber = 0;
+        int slowswapnumber = 0;
+
+        int slowqbitnum = size/;
         
         auto t1 = high_resolution_clock::now();
-        initialize(in);
         auto t2 = high_resolution_clock::now();
+        duration<double, std::milli> ms_double = t2 - t1;
+
+        t1 = high_resolution_clock::now();
+        initialize(in);
+        t2 = high_resolution_clock::now();
+        ms_double = t2 - t1;
+        inittime = ms_double.count();
 
         int groupid = 0;
         for (const auto& instr: instructions){
+            t1 = high_resolution_clock::now();
             if (instr.first == 0){
                 swapCommand(instr.second);
             } else if (instr.first == 1){
                 executeCommand(groupid);
                 groupid++;
             }
+            t2 = high_resolution_clock::now();
+            ms_double = t2 - t1;
+            if (instr.first == 0){
+                for (const auto& qbit: instr.second){
+                    if (qbit < localqbits) continue;
+                    if (qbit < nqbits-slowqbitsnumber) {
+                        fastswapnumber++;
+                        fastswaptime += ms_doubule.count();
+                        continue;
+                    }
+                    slowswapnumber++;
+                    slowswaptime += ms_double.count();
+
+                }
+            } else {
+                groupcomputetime += ms_double.count();
+                groupnumber++;
+            }
         }
 
-        auto t3 = high_resolution_clock::now();
+        t1 = high_resolution_clock::now();
         auto res = measurement();
-        auto t4 = high_resolution_clock::now();
+        t2 = high_resolution_clock::now();
+        ms_double = t2 - t1;
+        measuretime = ms_double.count();
 
-        duration<double, std::milli> ms_double_init = t2 - t1;
-        duration<double, std::milli> ms_double_compute = t3 - t2;
-        duration<double, std::milli> ms_double_end = t4 - t3;
-
-        if (displaytime && rank == 0){
-            std::cout << "Initialization time : " << ms_double_init.count() << " ms" << std::endl;
-            std::cout << "Computation time : " << ms_double_compute.count() << " ms" << std::endl;
-            std::cout << "measurement time : " << ms_double_end.count() << " ms" << std::endl;
+        if (displaytime){
+            int swaptime = slowswaptime+fastswaptime;
+            std::cout << "Initialization/Measurement : " << inittime << " / " << measuretime << " ms" << std::endl;
+            std::cout << "Total computing time : " << swaptime+groupcomputetime << " ms with swap% : " << 100*swaptime/(swaptime+groupcomputetime) << "%" << std::endl;
+            std::cout << "Average swap time : " << swaptime/swapnumber << " ms and average group time : " << groupcomputetime/groupnumber << " ms" << std::endl;
+            std::cout << "Number swap fast/slow : " << fastswapnumber << "/" << slowqbitsnumber << " Time swap fast/slow : " << fastswaptime << " / " << slowswaptime << " ms" << std::endl;
         }
         return res;
     }
