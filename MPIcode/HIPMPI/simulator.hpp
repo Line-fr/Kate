@@ -322,7 +322,7 @@ public:
                     if (qbit < localqbits) continue;
                     if (qbit < nqbits-slowqbitsnumber) {
                         fastswapnumber++;
-                        fastswaptime += ms_doubule.count();
+                        fastswaptime += ms_double.count();
                         continue;
                     }
                     slowswapnumber++;
@@ -342,7 +342,8 @@ public:
         measuretime = ms_double.count();
 
         if (displaytime){
-            int swaptime = slowswaptime+fastswaptime;
+            double swaptime = slowswaptime+fastswaptime;
+            int swapnumber = slowswapnumber + fastswapnumber;
             std::cout << "Initialization/Measurement : " << inittime << " / " << measuretime << " ms" << std::endl;
             std::cout << "Total computing time : " << swaptime+groupcomputetime << " ms with swap% : " << 100*swaptime/(swaptime+groupcomputetime) << "%" << std::endl;
             std::cout << "Average swap time : " << swaptime/swapnumber << " ms and average group time : " << groupcomputetime/groupnumber << " ms" << std::endl;
@@ -388,7 +389,7 @@ public:
                     if (qbit < localqbits) continue;
                     if (qbit < nqbits-slowqbitsnumber) {
                         fastswapnumber++;
-                        fastswaptime += ms_doubule.count();
+                        fastswaptime += ms_double.count();
                         continue;
                     }
                     slowswapnumber++;
@@ -408,7 +409,8 @@ public:
         measuretime = ms_double.count();
 
         if (displaytime){
-            int swaptime = slowswaptime+fastswaptime;
+            double swaptime = slowswaptime+fastswaptime;
+            int swapnumber = slowswapnumber + fastswapnumber;
             std::cout << "Initialization/Measurement : " << inittime << " / " << measuretime << " ms" << std::endl;
             std::cout << "Total computing time : " << swaptime+groupcomputetime << " ms with swap% : " << 100*swaptime/(swaptime+groupcomputetime) << "%" << std::endl;
             std::cout << "Average swap time : " << swaptime/swapnumber << " ms and average group time : " << groupcomputetime/groupnumber << " ms" << std::endl;
