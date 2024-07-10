@@ -295,8 +295,6 @@ public:
         double fastswaptime = 0;
         int fastswapnumber = 0;
         int slowswapnumber = 0;
-
-        int slowqbitnum = size/;
         
         auto t1 = high_resolution_clock::now();
         auto t2 = high_resolution_clock::now();
@@ -363,8 +361,6 @@ public:
         double fastswaptime = 0;
         int fastswapnumber = 0;
         int slowswapnumber = 0;
-
-        int slowqbitnum = size/;
         
         auto t1 = high_resolution_clock::now();
         auto t2 = high_resolution_clock::now();
