@@ -308,28 +308,29 @@ public:
 
         int groupid = 0;
         for (const auto& instr: instructions){
-            t1 = high_resolution_clock::now();
             if (instr.first == 0){
-                swapCommand(instr.second);
-            } else if (instr.first == 1){
-                executeCommand(groupid);
-                groupid++;
-            }
-            t2 = high_resolution_clock::now();
-            ms_double = t2 - t1;
-            if (instr.first == 0){
-                for (const auto& qbit: instr.second){
-                    if (qbit < localqbits) continue;
-                    if (qbit < nqbits-slowqbitsnumber) {
+                for (int i = 0; i < instr.second.size()/2; i++){
+                    int q1 = instr.second[2*i];
+                    int q2 = instr.second[2*i+1];
+                    if (q2 < q1) std::swap(q1, q2);
+                    t1 = high_resolution_clock::now();
+                    swapqbitBufferSwap(q1, q2);
+                    t2 = high_resolution_clock::now();
+                    ms_double = t2 - t1;
+                    if (q2 < nqbits-slowqbitsnumber) {
                         fastswapnumber++;
                         fastswaptime += ms_double.count();
                         continue;
                     }
                     slowswapnumber++;
                     slowswaptime += ms_double.count();
-
                 }
-            } else {
+            } else if (instr.first == 1){
+                t1 = high_resolution_clock::now();
+                executeCommand(groupid);
+                t2 = high_resolution_clock::now();
+                groupid++;
+                ms_double = t2 - t1;
                 groupcomputetime += ms_double.count();
                 groupnumber++;
             }
@@ -347,7 +348,7 @@ public:
             std::cout << "Initialization/Measurement : " << inittime << " / " << measuretime << " ms" << std::endl;
             std::cout << "Total computing time : " << swaptime+groupcomputetime << " ms with swap% : " << 100*swaptime/(swaptime+groupcomputetime) << "%" << std::endl;
             std::cout << "Average swap time : " << swaptime/swapnumber << " ms and average group time : " << groupcomputetime/groupnumber << " ms" << std::endl;
-            std::cout << "Number swap fast/slow : " << fastswapnumber << "/" << slowqbitsnumber << " Time swap fast/slow : " << fastswaptime << " / " << slowswaptime << " ms" << std::endl;
+            std::cout << "Number swap fast/slow : " << fastswapnumber << "/" << slowswapnumber << " Time swap fast/slow : " << fastswaptime << " / " << slowswaptime << " ms" << std::endl;
         }
         return res;
     }
@@ -375,28 +376,29 @@ public:
 
         int groupid = 0;
         for (const auto& instr: instructions){
-            t1 = high_resolution_clock::now();
             if (instr.first == 0){
-                swapCommand(instr.second);
-            } else if (instr.first == 1){
-                executeCommand(groupid);
-                groupid++;
-            }
-            t2 = high_resolution_clock::now();
-            ms_double = t2 - t1;
-            if (instr.first == 0){
-                for (const auto& qbit: instr.second){
-                    if (qbit < localqbits) continue;
-                    if (qbit < nqbits-slowqbitsnumber) {
+                for (int i = 0; i < instr.second.size()/2; i++){
+                    int q1 = instr.second[2*i];
+                    int q2 = instr.second[2*i+1];
+                    if (q2 < q1) std::swap(q1, q2);
+                    t1 = high_resolution_clock::now();
+                    swapqbitBufferSwap(q1, q2);
+                    t2 = high_resolution_clock::now();
+                    ms_double = t2 - t1;
+                    if (q2 < nqbits-slowqbitsnumber) {
                         fastswapnumber++;
                         fastswaptime += ms_double.count();
                         continue;
                     }
                     slowswapnumber++;
                     slowswaptime += ms_double.count();
-
                 }
-            } else {
+            } else if (instr.first == 1){
+                t1 = high_resolution_clock::now();
+                executeCommand(groupid);
+                t2 = high_resolution_clock::now();
+                groupid++;
+                ms_double = t2 - t1;
                 groupcomputetime += ms_double.count();
                 groupnumber++;
             }
@@ -414,7 +416,7 @@ public:
             std::cout << "Initialization/Measurement : " << inittime << " / " << measuretime << " ms" << std::endl;
             std::cout << "Total computing time : " << swaptime+groupcomputetime << " ms with swap% : " << 100*swaptime/(swaptime+groupcomputetime) << "%" << std::endl;
             std::cout << "Average swap time : " << swaptime/swapnumber << " ms and average group time : " << groupcomputetime/groupnumber << " ms" << std::endl;
-            std::cout << "Number swap fast/slow : " << fastswapnumber << "/" << slowqbitsnumber << " Time swap fast/slow : " << fastswaptime << " / " << slowswaptime << " ms" << std::endl;
+            std::cout << "Number swap fast/slow : " << fastswapnumber << "/" << slowswapnumber << " Time swap fast/slow : " << fastswaptime << " / " << slowswaptime << " ms" << std::endl;
         }
         return res;
     }
@@ -568,14 +570,6 @@ private:
             //import back to memory
             swapqbitKernelIndirectAccessIMPORT<<<dim3(blocknumber), dim3(threadnumber), 0, 0>>>((nqbits - number_of_gpu_log2), q1, (1 - globalindex), gpu_qbits_state, swapBuffer2, current, work_per_thread);
             GPU_CHECK(hipDeviceSynchronize());
-        }
-    }
-    void swapCommand(std::vector<int> pairset){
-        for (int i = 0; i < pairset.size()/2; i++){
-            int q1 = pairset[2*i];
-            int q2 = pairset[2*i+1];
-            if (q2 < q1) std::swap(q1, q2);
-            swapqbitBufferSwap(q1, q2);
         }
     }
     void executeCommand(int groupind){
