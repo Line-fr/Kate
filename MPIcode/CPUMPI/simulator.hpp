@@ -273,7 +273,7 @@ private:
             //put infos into buffer 1
             for (int i = current; i < current+chunk_size; i++){
                 size_t value = (i&mask) + ((i&mask2) << 1);
-                swapBuffer1[i] = gpu_qbits_state[value + ((1 - globalindex) << q1)];
+                swapBuffer1[i-current] = gpu_qbits_state[value + ((1 - globalindex) << q1)];
             }
             //send
             MPI_Isend((void*)swapBuffer1, sizeof(Complex)*chunk_size, MPI_BYTE, peer, 0, comm, &sendack);
@@ -282,7 +282,36 @@ private:
             //import back to memory
             for (int i = current; i < current+chunk_size; i++){
                 size_t value = (i&mask) + ((i&mask2) << 1);
-                gpu_qbits_state[value + ((1 - globalindex) << q1)] = swapBuffer2[i];
+                gpu_qbits_state[value + ((1 - globalindex) << q1)] = swapBuffer2[i-current];
+            }
+        }
+    }
+    void globalswapqbitBufferSwap(int q1, int q2){
+        q2 -= nqbits - number_of_gpu_log2;
+        q1 -= nqbits - number_of_gpu_log2;
+        size_t data_to_transfer = (1llu << (localqbits));
+        size_t chunk_size = std::min((size_t)(1llu << swapBufferSizeLog2), data_to_transfer);
+
+        int peer = rank ^ (1 << q2) ^ (1 << q1); //thanks the xor for being so convenient
+        int isconcerned = ((rank >> q1) + (rank >> q2))%2;
+        if (isconcerned == 0) return;
+        MPI_Request sendack;
+
+        size_t mask = (1llu << q1) - 1;
+        size_t mask2 = (1llu << (localqbits - 1)) - 1 - mask;
+
+        for (size_t current = 0; current < data_to_transfer; current += chunk_size){
+            //put infos into buffer 1
+            for (int i = current; i < current+chunk_size; i++){
+                swapBuffer1[i-current] = gpu_qbits_state[i];
+            }
+            //send
+            MPI_Isend((void*)swapBuffer1, sizeof(Complex)*chunk_size, MPI_BYTE, peer, 0, comm, &sendack);
+            MPI_Recv((void*)swapBuffer2, sizeof(Complex)*chunk_size, MPI_BYTE, peer, 0, comm, MPI_STATUS_IGNORE);
+            MPI_Wait(&sendack, MPI_STATUS_IGNORE);
+            //import back to memory
+            for (int i = current; i < current+chunk_size; i++){
+                gpu_qbits_state[i] = swapBuffer2[i-current];
             }
         }
     }
@@ -291,7 +320,12 @@ private:
             int q1 = pairset[2*i];
             int q2 = pairset[2*i+1];
             if (q2 < q1) std::swap(q1, q2);
-            swapqbitBufferSwap(q1, q2);
+            if (q1 >= localqbits){
+                //slow fast swap
+                globalswapqbitBufferSwap(q1, q2);
+            } else {
+                swapqbitBufferSwap(q1, q2);
+            }
         }
     }
     void executeCommand(int groupind){

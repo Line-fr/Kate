@@ -134,6 +134,24 @@ __global__ void swapqbitKernelIndirectAccessIMPORT(int nqbits, int localq, size_
     }
 }
 
+__global__ void globalswapqbitKernelIndirectAccessEXTRACT(int nqbits, Complex* mymemory, Complex* buffer, int baseindex, int values_per_thread){
+    size_t tid = threadIdx.x + blockIdx.x*blockDim.x;
+
+    for (size_t i = tid*values_per_thread; i < (tid+1)*(values_per_thread); i++){
+        
+        buffer[i] = mymemory[i+baseindex];
+    }
+}
+
+__global__ void globalswapqbitKernelIndirectAccessIMPORT(int nqbits, Complex* mymemory, Complex* buffer, int baseindex, int values_per_thread){
+    size_t tid = threadIdx.x + blockIdx.x*blockDim.x;
+
+    for (size_t i = tid*values_per_thread; i < (tid+1)*(values_per_thread); i++){
+        
+        mymemory[i+baseindex] = buffer[i];
+    }
+}
+
 __global__ void executeGroupKernelSharedState(int nqbits, Complex* qbitsstate, int groupnqbits, int* groupqbits, GPUGate* gates, int gatenumber, int sharedMemMatrixSize){
     int bit_to_groupbitnumber[64];
     for (int i = 0; i < groupnqbits; i++){
@@ -314,7 +332,11 @@ public:
                     int q2 = instr.second[2*i+1];
                     if (q2 < q1) std::swap(q1, q2);
                     t1 = high_resolution_clock::now();
-                    swapqbitBufferSwap(q1, q2);
+                    if (q1 < localqbits){
+                        swapqbitBufferSwap(q1, q2);
+                    } else {
+                        globalswapqbitBufferSwap(q1, q2);
+                    }
                     t2 = high_resolution_clock::now();
                     ms_double = t2 - t1;
                     if (q2 < nqbits-slowqbitsnumber) {
@@ -382,7 +404,11 @@ public:
                     int q2 = instr.second[2*i+1];
                     if (q2 < q1) std::swap(q1, q2);
                     t1 = high_resolution_clock::now();
-                    swapqbitBufferSwap(q1, q2);
+                    if (q1 < localqbits){
+                        swapqbitBufferSwap(q1, q2);
+                    } else {
+                        globalswapqbitBufferSwap(q1, q2);
+                    }
                     t2 = high_resolution_clock::now();
                     ms_double = t2 - t1;
                     if (q2 < nqbits-slowqbitsnumber) {
@@ -569,6 +595,34 @@ private:
             MPI_Wait(&sendack, MPI_STATUS_IGNORE);
             //import back to memory
             swapqbitKernelIndirectAccessIMPORT<<<dim3(blocknumber), dim3(threadnumber), 0, 0>>>((nqbits - number_of_gpu_log2), q1, (1 - globalindex), gpu_qbits_state, swapBuffer2, current, work_per_thread);
+            GPU_CHECK(hipDeviceSynchronize());
+        }
+    }
+    void globalswapqbitBufferSwap(int q1, int q2){
+        q1 -= nqbits - number_of_gpu_log2;
+        q2 -= nqbits - number_of_gpu_log2;
+        size_t data_to_transfer = (1llu << (localqbits));
+        size_t chunk_size = std::min((size_t)(1llu << swapBufferSizeLog2), data_to_transfer);
+
+        int peer = rank ^ (1 << q2) ^ (1 << q1); //thanks the xor for being so convenient
+        int isconcerned = ((rank >> q1) + (rank >> q2))%2;
+        if (isconcerned == 0) return;
+        MPI_Request sendack;
+
+        int threadnumber = min(1024llu, (unsigned long long)(chunk_size));
+        int blocknumber = min((1llu << 12), (unsigned long long)(chunk_size)/threadnumber);
+        int work_per_thread = max(1llu, (unsigned long long)chunk_size/threadnumber/blocknumber);
+
+        for (size_t current = 0; current < data_to_transfer; current += chunk_size){
+            //put infos into buffer 1
+            globalswapqbitKernelIndirectAccessEXTRACT<<<dim3(blocknumber), dim3(threadnumber), 0, 0>>>((nqbits - number_of_gpu_log2), gpu_qbits_state, swapBuffer1, current, work_per_thread);
+            GPU_CHECK(hipDeviceSynchronize());
+            //send
+            MPI_Isend((void*)swapBuffer1, sizeof(Complex)*chunk_size, MPI_BYTE, peer, 0, comm, &sendack);
+            MPI_Recv((void*)swapBuffer2, sizeof(Complex)*chunk_size, MPI_BYTE, peer, 0, comm, MPI_STATUS_IGNORE);
+            MPI_Wait(&sendack, MPI_STATUS_IGNORE);
+            //import back to memory
+            globalswapqbitKernelIndirectAccessIMPORT<<<dim3(blocknumber), dim3(threadnumber), 0, 0>>>((nqbits - number_of_gpu_log2), gpu_qbits_state, swapBuffer2, current, work_per_thread);
             GPU_CHECK(hipDeviceSynchronize());
         }
     }
