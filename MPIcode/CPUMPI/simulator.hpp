@@ -297,9 +297,6 @@ private:
         if (isconcerned == 0) return;
         MPI_Request sendack;
 
-        size_t mask = (1llu << q1) - 1;
-        size_t mask2 = (1llu << (localqbits - 1)) - 1 - mask;
-
         for (size_t current = 0; current < data_to_transfer; current += chunk_size){
             //put infos into buffer 1
             for (int i = current; i < current+chunk_size; i++){
