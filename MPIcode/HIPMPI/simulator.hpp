@@ -152,6 +152,32 @@ __global__ void globalswapqbitKernelIndirectAccessIMPORT(int nqbits, Complex* my
     }
 }
 
+__global__ void multi_swapKernelEXTRACT(int nqbits, int masksnum, size_t* masks, size_t base, Complex* mymemory, Complex* buffer, int baseindex, int values_per_thread){
+    size_t tid = threadIdx.x + blockIdx.x*blockDim.x;
+
+    for (size_t i = tid*values_per_thread; i < (tid+1)*(values_per_thread); i++){
+        size_t value = base;
+        for (int j = 0; j < masksnum; j++){
+            value += ((i+baseindex)&masks[j]) << j;
+        }
+        
+        buffer[i] = mymemory[value];
+    }
+}
+
+__global__ void multi_swapKernelIMPORT(int nqbits, int masksnum, size_t* masks, size_t base, Complex* mymemory, Complex* buffer, int baseindex, int values_per_thread){
+    size_t tid = threadIdx.x + blockIdx.x*blockDim.x;
+
+    for (size_t i = tid*values_per_thread; i < (tid+1)*(values_per_thread); i++){
+        size_t value = base;
+        for (int j = 0; j < masksnum; j++){
+            value += ((i+baseindex)&masks[j]) << j;
+        }
+        
+        mymemory[value] = buffer[i];
+    }
+}
+
 __global__ void executeGroupKernelSharedState(int nqbits, Complex* qbitsstate, int groupnqbits, int* groupqbits, GPUGate* gates, int gatenumber, int sharedMemMatrixSize){
     int bit_to_groupbitnumber[64];
     for (int i = 0; i < groupnqbits; i++){
@@ -327,26 +353,18 @@ public:
         int groupid = 0;
         for (const auto& instr: instructions){
             if (instr.first == 0){
+                std::vector<std::pair<int, int>> swaps;
                 for (int i = 0; i < instr.second.size()/2; i++){
                     int q1 = instr.second[2*i];
                     int q2 = instr.second[2*i+1];
                     if (q2 < q1) std::swap(q1, q2);
-                    t1 = high_resolution_clock::now();
-                    if (q1 < localqbits){
-                        swapqbitBufferSwap(q1, q2);
-                    } else {
-                        globalswapqbitBufferSwap(q1, q2);
-                    }
-                    t2 = high_resolution_clock::now();
-                    ms_double = t2 - t1;
-                    if (q2 < nqbits-slowqbitsnumber) {
-                        fastswapnumber++;
-                        fastswaptime += ms_double.count();
-                        continue;
-                    }
-                    slowswapnumber++;
-                    slowswaptime += ms_double.count();
+                    swaps.push_back(std::make_pair(q1, q2));
                 }
+                auto timings = multipleswaps(swaps);
+                fastswapnumber += timings.first.second;
+                fastswaptime += timings.first.first;
+                slowswapnumber += timings.second.second;
+                slowswaptime += timings.second.first;
             } else if (instr.first == 1){
                 t1 = high_resolution_clock::now();
                 executeCommand(groupid);
@@ -399,26 +417,18 @@ public:
         int groupid = 0;
         for (const auto& instr: instructions){
             if (instr.first == 0){
+                std::vector<std::pair<int, int>> swaps;
                 for (int i = 0; i < instr.second.size()/2; i++){
                     int q1 = instr.second[2*i];
                     int q2 = instr.second[2*i+1];
                     if (q2 < q1) std::swap(q1, q2);
-                    t1 = high_resolution_clock::now();
-                    if (q1 < localqbits){
-                        swapqbitBufferSwap(q1, q2);
-                    } else {
-                        globalswapqbitBufferSwap(q1, q2);
-                    }
-                    t2 = high_resolution_clock::now();
-                    ms_double = t2 - t1;
-                    if (q2 < nqbits-slowqbitsnumber) {
-                        fastswapnumber++;
-                        fastswaptime += ms_double.count();
-                        continue;
-                    }
-                    slowswapnumber++;
-                    slowswaptime += ms_double.count();
+                    swaps.push_back(std::make_pair(q1, q2));
                 }
+                auto timings = multipleswaps(swaps);
+                fastswapnumber += timings.first.second;
+                fastswaptime += timings.first.first;
+                slowswapnumber += timings.second.second;
+                slowswaptime += timings.second.first;
             } else if (instr.first == 1){
                 t1 = high_resolution_clock::now();
                 executeCommand(groupid);
@@ -625,6 +635,77 @@ private:
             globalswapqbitKernelIndirectAccessIMPORT<<<dim3(blocknumber), dim3(threadnumber), 0, 0>>>((nqbits - number_of_gpu_log2), gpu_qbits_state, swapBuffer2, current, work_per_thread);
             GPU_CHECK(hipDeviceSynchronize());
         }
+    }
+    std::pair<std::pair<double, int>, std::pair<double, int>> multipleswaps(std::vector<std::pair<int, int>> swaps){ //locals,globals
+        std::pair<std::pair<double, int>, std::pair<double, int>> res; //first fast second slow
+        res.first.first = 0;
+        res.first.second = 0;
+        res.second.first = 0;
+        res.second.second = 0;
+        for (auto& qbit_pair: swaps){
+            if (qbit_pair.second < nqbits-slowqbitsnumber){
+                res.first.second++;
+            } else {
+                res.second.second++;
+            }
+            qbit_pair.second -= nqbits-number_of_gpu_log2;
+        }
+
+        std::sort(swaps.begin(), swaps.end()); //sort via locals
+
+        size_t data_to_transfer = (1llu << (localqbits - swaps.size())); //per iteration
+        size_t chunk_size = std::min((size_t)(1llu << swapBufferSizeLog2), data_to_transfer);
+        MPI_Request sendack;
+
+        int threadnumber = min(1024llu, (unsigned long long)(chunk_size));
+        int blocknumber = min((1llu << 12), (unsigned long long)(chunk_size)/threadnumber);
+        int work_per_thread = max(1llu, (unsigned long long)chunk_size/threadnumber/blocknumber);
+
+        size_t* masks = (size_t*)malloc(sizeof(size_t)*(swaps.size()+1));
+        size_t cumulative = 0;
+        for (int i = 0; i < swaps.size(); i++){
+            masks[i] = (1llu << (swaps[i].first - i)) - 1 - cumulative;
+            cumulative += masks[i];
+        }
+        masks[swaps.size()] = (1llu << (localqbits - swaps.size())) - 1 - cumulative;
+
+        size_t* masks_d;
+        GPU_CHECK(hipMalloc(&masks_d, sizeof(size_t)*(swaps.size()+1)))
+        GPU_CHECK(hipMemcpyHtoD((hipDeviceptr_t)masks_d, masks, sizeof(size_t)*(1+swaps.size())))
+        free(masks);
+
+        for (int master_diff = 1; master_diff < (1llu << swaps.size()); master_diff++){
+            size_t current_local_adress = 0;
+            size_t peer = rank;
+            bool slow = false;
+            for (int i = 0; i < swaps.size(); i++){
+                current_local_adress += (1llu << swaps[i].first)*(((master_diff >> i)%2)^((rank >> swaps[i].second)%2));
+                peer ^= ((master_diff >> i)%2)*(1llu << swaps[i].second);
+                if (swaps[i].second >= number_of_gpu_log2-slowqbitsnumber && ((master_diff >> i)%2) == 1) slow = true;
+            }
+            auto t1 = high_resolution_clock::now();
+            for (size_t current = 0; current < data_to_transfer; current += chunk_size){
+                //put infos into buffer 1
+                multi_swapKernelEXTRACT<<<dim3(blocknumber), dim3(threadnumber), 0, 0>>>(localqbits, swaps.size()+1, masks_d, current_local_adress, gpu_qbits_state, swapBuffer1, current, work_per_thread);
+                GPU_CHECK(hipDeviceSynchronize());
+                //send
+                MPI_Isend((void*)swapBuffer1, sizeof(Complex)*chunk_size, MPI_BYTE, peer, 0, comm, &sendack);
+                MPI_Recv((void*)swapBuffer2, sizeof(Complex)*chunk_size, MPI_BYTE, peer, 0, comm, MPI_STATUS_IGNORE);
+                MPI_Wait(&sendack, MPI_STATUS_IGNORE);
+                //import back to memory
+                multi_swapKernelIMPORT<<<dim3(blocknumber), dim3(threadnumber), 0, 0>>>(localqbits, swaps.size()+1, masks_d, current_local_adress, gpu_qbits_state, swapBuffer2, current, work_per_thread);
+                GPU_CHECK(hipDeviceSynchronize());
+            }
+            auto t2 = high_resolution_clock::now();
+            duration<double, std::milli> ms_double = t2 - t1;
+            if (slow){
+                res.second.first += ms_double.count();
+            } else {
+                res.first.first += ms_double.count();
+            }
+        }
+        GPU_CHECK(hipFree(masks_d))
+        return res;
     }
     void executeCommand(int groupind){
         std::set<int> newqbits = groups[groupind].second;

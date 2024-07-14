@@ -77,7 +77,14 @@ public:
         for (const auto& instr: instructions){
             t1 = high_resolution_clock::now();
             if (instr.first == 0){
-                swapCommand(instr.second);
+                std::vector<std::pair<int, int>> swaps;
+                for (int i = 0; i < instr.second.size()/2; i++){
+                    int q1 = instr.second[2*i];
+                    int q2 = instr.second[2*i+1];
+                    if (q2 < q1) std::swap(q1, q2);
+                    swaps.push_back(std::make_pair(q1, q2));
+                }
+                multipleswaps(swaps);
             } else if (instr.first == 1){
                 executeCommand(groupid);
                 groupid++;
@@ -86,7 +93,7 @@ public:
             ms_double = t2 - t1;
             if (instr.first == 0){
                 swaptime += ms_double.count();
-                swapnumber++;
+                swapnumber += instr.second.size();
             } else {
                 groupcomputetime += ms_double.count();
                 groupnumber++;
@@ -128,7 +135,14 @@ public:
         for (const auto& instr: instructions){
             t1 = high_resolution_clock::now();
             if (instr.first == 0){
-                swapCommand(instr.second);
+                std::vector<std::pair<int, int>> swaps;
+                for (int i = 0; i < instr.second.size()/2; i++){
+                    int q1 = instr.second[2*i];
+                    int q2 = instr.second[2*i+1];
+                    if (q2 < q1) std::swap(q1, q2);
+                    swaps.push_back(std::make_pair(q1, q2));
+                }
+                multipleswaps(swaps);
             } else if (instr.first == 1){
                 executeCommand(groupid);
                 groupid++;
@@ -137,7 +151,7 @@ public:
             ms_double = t2 - t1;
             if (instr.first == 0){
                 swaptime += ms_double.count();
-                swapnumber++;
+                swapnumber += instr.second.size();
             } else {
                 groupcomputetime += ms_double.count();
                 groupnumber++;
@@ -311,6 +325,57 @@ private:
                 gpu_qbits_state[i] = swapBuffer2[i-current];
             }
         }
+    }
+    void multipleswaps(std::vector<std::pair<int, int>> swaps){ //locals,globals
+        for (auto& qbit_pair: swaps){
+            qbit_pair.second -= nqbits-number_of_gpu_log2;
+        }
+
+        std::sort(swaps.begin(), swaps.end()); //sort via locals
+
+        size_t data_to_transfer = (1llu << (localqbits - swaps.size())); //per iteration
+        size_t chunk_size = std::min((size_t)(1llu << swapBufferSizeLog2), data_to_transfer);
+        MPI_Request sendack;
+
+        size_t* masks = (size_t*)malloc(sizeof(size_t)*(swaps.size()+1));
+        size_t cumulative = 0;
+        for (int i = 0; i < swaps.size(); i++){
+            masks[i] = (1llu << (swaps[i].first - i)) - 1 - cumulative;
+            cumulative += masks[i];
+        }
+        masks[swaps.size()] = (1llu << (localqbits - swaps.size())) - 1 - cumulative;
+
+        for (int master_diff = 1; master_diff < (1llu << swaps.size()); master_diff++){
+            size_t current_local_adress = 0;
+            size_t peer = rank;
+            for (int i = 0; i < swaps.size(); i++){
+                current_local_adress += (1llu << swaps[i].first)*(((master_diff >> i)%2)^((rank >> swaps[i].second)%2));
+                peer ^= ((master_diff >> i)%2)*(1llu << swaps[i].second);
+            }
+            for (size_t current = 0; current < data_to_transfer; current += chunk_size){
+                //put infos into buffer 1
+                for (int i = current; i < current+chunk_size; i++){
+                    size_t value = current_local_adress;
+                    for (int j = 0; j < swaps.size()+1; j++){
+                        value += ((i)&masks[j]) << j;
+                    }
+                    swapBuffer1[i-current] = gpu_qbits_state[value];
+                }
+                //send
+                MPI_Isend((void*)swapBuffer1, sizeof(Complex)*chunk_size, MPI_BYTE, peer, 0, comm, &sendack);
+                MPI_Recv((void*)swapBuffer2, sizeof(Complex)*chunk_size, MPI_BYTE, peer, 0, comm, MPI_STATUS_IGNORE);
+                MPI_Wait(&sendack, MPI_STATUS_IGNORE);
+                //import back to memory
+                for (int i = current; i < current+chunk_size; i++){
+                    size_t value = current_local_adress;
+                    for (int j = 0; j < swaps.size()+1; j++){
+                        value += ((i)&masks[j]) << j;
+                    }
+                    gpu_qbits_state[value] = swapBuffer2[i-current];
+                }
+            }
+        }
+        free(masks);
     }
     void swapCommand(std::vector<int> pairset){
         for (int i = 0; i < pairset.size()/2; i++){
