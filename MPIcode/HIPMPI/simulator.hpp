@@ -328,7 +328,7 @@ public:
         
         GPU_CHECK(hipDeviceSynchronize());
     }
-    proba_state execute(bool displaytime = false){// initialization and end will take care of repermuting good values
+    proba_state execute(bool displaytime = false, bool multiswap = true){// initialization and end will take care of repermuting good values
         if (cpumode) return cpusim.execute(displaytime);
 
         double inittime = -1;
@@ -353,18 +353,41 @@ public:
         int groupid = 0;
         for (const auto& instr: instructions){
             if (instr.first == 0){
-                std::vector<std::pair<int, int>> swaps;
-                for (int i = 0; i < instr.second.size()/2; i++){
-                    int q1 = instr.second[2*i];
-                    int q2 = instr.second[2*i+1];
-                    if (q2 < q1) std::swap(q1, q2);
-                    swaps.push_back(std::make_pair(q1, q2));
+                if (multiswap){
+                    std::vector<std::pair<int, int>> swaps;
+                    for (int i = 0; i < instr.second.size()/2; i++){
+                        int q1 = instr.second[2*i];
+                        int q2 = instr.second[2*i+1];
+                        if (q2 < q1) std::swap(q1, q2);
+                        swaps.push_back(std::make_pair(q1, q2));
+                    }
+                    auto timings = multipleswaps(swaps);
+                    fastswapnumber += timings.first.second;
+                    fastswaptime += timings.first.first;
+                    slowswapnumber += timings.second.second;
+                    slowswaptime += timings.second.first;
+                } else {
+                    for (int i = 0; i < instr.second.size()/2; i++){
+                        int q1 = instr.second[2*i];
+                        int q2 = instr.second[2*i+1];
+                        if (q2 < q1) std::swap(q1, q2);
+                        t1 = high_resolution_clock::now();
+                        if (q1 < localqbits){
+                            swapqbitBufferSwap(q1, q2);
+                        } else {
+                            globalswapqbitBufferSwap(q1, q2);
+                        }
+                        t2 = high_resolution_clock::now();
+                        ms_double = t2 - t1;
+                        if (q2 < nqbits-slowqbitsnumber) {
+                            fastswapnumber++;
+                            fastswaptime += ms_double.count();
+                            continue;
+                        }
+                        slowswapnumber++;
+                        slowswaptime += ms_double.count();
+                    }
                 }
-                auto timings = multipleswaps(swaps);
-                fastswapnumber += timings.first.second;
-                fastswaptime += timings.first.first;
-                slowswapnumber += timings.second.second;
-                slowswaptime += timings.second.first;
             } else if (instr.first == 1){
                 t1 = high_resolution_clock::now();
                 executeCommand(groupid);
@@ -392,7 +415,7 @@ public:
         }
         return res;
     }
-    proba_state execute(proba_state& in, bool displaytime = false){// initialization and end will take care of repermuting good values
+    proba_state execute(proba_state& in, bool displaytime = false, bool multiswap = true){// initialization and end will take care of repermuting good values
         if (cpumode) return cpusim.execute(displaytime);
 
         double inittime = -1;
@@ -417,18 +440,41 @@ public:
         int groupid = 0;
         for (const auto& instr: instructions){
             if (instr.first == 0){
-                std::vector<std::pair<int, int>> swaps;
-                for (int i = 0; i < instr.second.size()/2; i++){
-                    int q1 = instr.second[2*i];
-                    int q2 = instr.second[2*i+1];
-                    if (q2 < q1) std::swap(q1, q2);
-                    swaps.push_back(std::make_pair(q1, q2));
+                if (multiswap){
+                    std::vector<std::pair<int, int>> swaps;
+                    for (int i = 0; i < instr.second.size()/2; i++){
+                        int q1 = instr.second[2*i];
+                        int q2 = instr.second[2*i+1];
+                        if (q2 < q1) std::swap(q1, q2);
+                        swaps.push_back(std::make_pair(q1, q2));
+                    }
+                    auto timings = multipleswaps(swaps);
+                    fastswapnumber += timings.first.second;
+                    fastswaptime += timings.first.first;
+                    slowswapnumber += timings.second.second;
+                    slowswaptime += timings.second.first;
+                } else {
+                    for (int i = 0; i < instr.second.size()/2; i++){
+                        int q1 = instr.second[2*i];
+                        int q2 = instr.second[2*i+1];
+                        if (q2 < q1) std::swap(q1, q2);
+                        t1 = high_resolution_clock::now();
+                        if (q1 < localqbits){
+                            swapqbitBufferSwap(q1, q2);
+                        } else {
+                            globalswapqbitBufferSwap(q1, q2);
+                        }
+                        t2 = high_resolution_clock::now();
+                        ms_double = t2 - t1;
+                        if (q2 < nqbits-slowqbitsnumber) {
+                            fastswapnumber++;
+                            fastswaptime += ms_double.count();
+                            continue;
+                        }
+                        slowswapnumber++;
+                        slowswaptime += ms_double.count();
+                    }
                 }
-                auto timings = multipleswaps(swaps);
-                fastswapnumber += timings.first.second;
-                fastswaptime += timings.first.first;
-                slowswapnumber += timings.second.second;
-                slowswaptime += timings.second.first;
             } else if (instr.first == 1){
                 t1 = high_resolution_clock::now();
                 executeCommand(groupid);

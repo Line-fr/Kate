@@ -55,7 +55,7 @@ public:
             swapBuffer2 = (Complex*)malloc(sizeof(Complex)*(1llu << swapBufferSizeLog2));
         }
     }
-    proba_state execute(bool displaytime = false){// initialization and end will take care of repermuting good values
+    proba_state execute(bool displaytime = false, bool multiswap = true){// initialization and end will take care of repermuting good values
         double inittime = -1;
         double measuretime = -1;
         double groupcomputetime = 0;
@@ -77,14 +77,18 @@ public:
         for (const auto& instr: instructions){
             t1 = high_resolution_clock::now();
             if (instr.first == 0){
-                std::vector<std::pair<int, int>> swaps;
-                for (int i = 0; i < instr.second.size()/2; i++){
-                    int q1 = instr.second[2*i];
-                    int q2 = instr.second[2*i+1];
-                    if (q2 < q1) std::swap(q1, q2);
-                    swaps.push_back(std::make_pair(q1, q2));
+                if (multiswap){
+                    std::vector<std::pair<int, int>> swaps;
+                    for (int i = 0; i < instr.second.size()/2; i++){
+                        int q1 = instr.second[2*i];
+                        int q2 = instr.second[2*i+1];
+                        if (q2 < q1) std::swap(q1, q2);
+                        swaps.push_back(std::make_pair(q1, q2));
+                    }
+                    multipleswaps(swaps);
+                } else {
+                    swapCommand(instr.second);
                 }
-                multipleswaps(swaps);
             } else if (instr.first == 1){
                 executeCommand(groupid);
                 groupid++;
@@ -113,7 +117,7 @@ public:
         }
         return res;
     }
-    proba_state execute(proba_state& in, bool displaytime = false){// initialization and end will take care of repermuting good values
+    proba_state execute(proba_state& in, bool displaytime = false, bool multiswap = true){// initialization and end will take care of repermuting good values
         double inittime = -1;
         double measuretime = -1;
         double groupcomputetime = 0;
@@ -135,14 +139,18 @@ public:
         for (const auto& instr: instructions){
             t1 = high_resolution_clock::now();
             if (instr.first == 0){
-                std::vector<std::pair<int, int>> swaps;
-                for (int i = 0; i < instr.second.size()/2; i++){
-                    int q1 = instr.second[2*i];
-                    int q2 = instr.second[2*i+1];
-                    if (q2 < q1) std::swap(q1, q2);
-                    swaps.push_back(std::make_pair(q1, q2));
+                if (multiswap){
+                    std::vector<std::pair<int, int>> swaps;
+                    for (int i = 0; i < instr.second.size()/2; i++){
+                        int q1 = instr.second[2*i];
+                        int q2 = instr.second[2*i+1];
+                        if (q2 < q1) std::swap(q1, q2);
+                        swaps.push_back(std::make_pair(q1, q2));
+                    }
+                    multipleswaps(swaps);
+                } else {
+                    swapCommand(instr.second);
                 }
-                multipleswaps(swaps);
             } else if (instr.first == 1){
                 executeCommand(groupid);
                 groupid++;
