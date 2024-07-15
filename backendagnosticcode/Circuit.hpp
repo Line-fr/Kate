@@ -623,6 +623,143 @@ public:
 
         final_inverse_permutation = inversepermutation;
     }
+    void groupallocate(int numberofgpulog2 = 0, int maxlocalqbitnumber= 300){ //OPTIMISATION STEP 4 (it can be further optimised taking into account multiple swaps at the same time)
+        //only support homogeneous gpus or the slow one will slow the big one
+        if (maxlocalqbitnumber + numberofgpulog2 < nqbits){
+            std::cout << "Error: Can't allocate - Too much qbits in the circuit to handle with " << maxlocalqbitnumber << " localqbits and " << (1llu << numberofgpulog2) << " gpus" << std::endl;
+            return;
+        }
+        
+        maxlocalqbitnumber = nqbits - numberofgpulog2; //this line is to modify the behaviour from "use fewest amount of gpu to as much as permitted by options"
+        //comment this line to come back to old behaviour
+
+        instructions = {};
+        //if no grouping optimisation is done, we will use naive grouping which is one group per gate because it is necessary for our later processing
+        if (groups.size() == 0){
+            for (int i = 0; i < gate_set_ordered.size(); i++){
+                groups.push_back(std::make_pair(i+1, std::set<int>(gate_set_ordered[i].qbits.begin(), gate_set_ordered[i].qbits.end())));
+            }
+        }
+        //if (nqbits <= maxlocalqbitnumber || numberofgpulog2 == 0){
+        //    //just need to push compute1 number of group times
+        //    for (int i = 0; i < groups.size(); i++){
+        //        instructions.push_back(make_pair(1, std::vector<int>()));
+        //    }
+        //    return;
+        //}
+        //we need to know at each step when will a qbit be useful next. 
+        //A way to do it in linear time is to precompute when it is used when it will be used next which can be done in linear time
+        //there is complicated but doable way of doing it in nlogn total but here we will see a n**2 way with the precomputation
+        std::vector<std::set<std::pair<int, int>>> precompute(groups.size()); //pair<int,int> is (qbit, time before reappearing)
+        std::vector<int> last_seen(nqbits, INT32_MAX); //you wouldn't use anywhere close to 2**32 gates right?
+        for (int i = groups.size()-1; i >= 0; i--){
+            for (const auto& el: groups[i].second){ //all qbit of a group
+                precompute[i].insert(std::make_pair(el, last_seen[el] - i));
+                last_seen[el] = i;
+            }
+        }
+        //now we can start allocating in the direct direction instead of the reverse one like the precomputation
+
+        //first is the initialization using.. the remaining unused end state of last_seen!
+        std::vector<int> last_seenid(last_seen.size());
+        for (int i = 0; i < nqbits; i++){
+            last_seenid[i] = i;
+        } //we will sort the array so this is useful to remember indexes
+        sort(last_seenid.begin(), last_seenid.end(), [&last_seen](int a, int b){return last_seen[a] < last_seen[b];});
+        std::vector<int> locals, globals;
+        locals = std::vector<int>(last_seenid.begin(),last_seenid.end()-numberofgpulog2);
+        globals = std::vector<int>(last_seenid.end()-numberofgpulog2, last_seenid.end());
+        //last part of initialization
+        std::vector<int> nextsee(nqbits, 0);
+        std::vector<int> permutation(nqbits, 0); //super important
+        std::vector<int> inversepermutation(nqbits, 0);
+        //qbit is local if permutation[qbit] < maxlocalqbitnumber
+        for (int i = 0; i < nqbits; i++){
+            nextsee[i] = last_seen[i];
+        }
+
+        int i = 0;
+        for (const auto& el: locals){
+            permutation[el] = i; //permutation is real to virtual
+            inversepermutation[i] = el; //virtual to real
+            i++;
+        }
+        for (const auto& el: globals){
+            permutation[el] = i;
+            inversepermutation[i] = el;
+            i++;
+        }
+
+        initial_permutation = permutation;
+
+        //i <-> j, permutation[i] <-> permutation[j]
+        //now we can definitely generate instructions!
+        std::vector<std::pair<int, int>> pairs;
+        std::set<int> alreadytaken;
+        int k = 0; //gate index
+        for (int i = 0; i < groups.size(); i++){
+            for (int l = 0; l < nqbits; l++){
+                nextsee[l] -= 1;
+            }
+            pairs = {};
+            alreadytaken = std::set<int>(groups[i].second.begin(), groups[i].second.end());
+            for (const auto& el: groups[i].second){ //let's check who we need to swap!
+                if (permutation[el] >= maxlocalqbitnumber){
+                    //we need to swap so let s swap as much as we can
+                    for (int glob = 0; glob < numberofgpulog2; glob++){
+                        //search max of locals
+                        int maxind = 0;
+                        for (int loc = 1; loc < nqbits-numberofgpulog2; loc++){
+                            if (nextsee[inversepermutation[maxind]] < nextsee[inversepermutation[loc]]) maxind = loc;
+                        }
+                        //search a fitting place in glob
+                        int minind = nqbits-numberofgpulog2;
+                        for (int glo = nqbits-numberofgpulog2+1; glo < nqbits; glo++){
+                            if (nextsee[inversepermutation[minind]] > nextsee[inversepermutation[glo]]) minind = glo;
+                        }
+                        if (nextsee[inversepermutation[minind]] >= nextsee[inversepermutation[maxind]]) break;
+                        int worstqbit = inversepermutation[maxind];
+                        int el = inversepermutation[minind];
+                        pairs.push_back(std::make_pair(permutation[el], permutation[worstqbit]));
+                        //now let's refresh permutations
+                        std::swap(inversepermutation[permutation[el]], inversepermutation[permutation[worstqbit]]);
+                        std::swap(permutation[el], permutation[worstqbit]);
+                    }
+                    break;
+                }
+            }
+            for (const auto& refreshpair: precompute[i]){
+                nextsee[refreshpair.first] = refreshpair.second;
+            }
+            if (pairs.size() != 0){
+                //swap operation needed!
+                std::vector<int> pairsset;
+                for (const auto& pair: pairs){
+                    pairsset.push_back(pair.first);
+                    pairsset.push_back(pair.second);
+                }
+                instructions.push_back(std::make_pair(0, pairsset));
+            }
+            instructions.push_back(std::make_pair(1, std::vector<int>()));
+            //we need to modify gates subjective qbits and of the group
+            std::set<int> temp;
+            for (const auto& el: groups[i].second){
+                temp.insert(permutation[el]);
+            }
+            groups[i].second = temp;
+            std::vector<int> temp2;
+            for (int l = k; l < groups[i].first; l++){
+                temp2.clear();
+                for (const auto& qbit: gate_set_ordered[l].qbits){
+                    temp2.push_back(permutation[qbit]);
+                }
+                gate_set_ordered[l].qbits = temp2;
+            }
+            k = groups[i].first;
+        }
+
+        final_inverse_permutation = inversepermutation;
+    }
     void exportqcx(std::string filename){
         std::ofstream file(filename);
         if (!file){
