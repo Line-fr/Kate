@@ -83,7 +83,11 @@ public:
                         int q1 = instr.second[2*i];
                         int q2 = instr.second[2*i+1];
                         if (q2 < q1) std::swap(q1, q2);
-                        swaps.push_back(std::make_pair(q1, q2));
+                        if (q1 < localqbits){
+                            swaps.push_back(std::make_pair(q1, q2));
+                        } else {
+                            globalswapqbitBufferSwap(q1, q2);
+                        }
                     }
                     multipleswaps(swaps);
                 } else {
@@ -145,7 +149,11 @@ public:
                         int q1 = instr.second[2*i];
                         int q2 = instr.second[2*i+1];
                         if (q2 < q1) std::swap(q1, q2);
-                        swaps.push_back(std::make_pair(q1, q2));
+                        if (q1 < localqbits){
+                            swaps.push_back(std::make_pair(q1, q2));
+                        } else {
+                            globalswapqbitBufferSwap(q1, q2);
+                        }
                     }
                     multipleswaps(swaps);
                 } else {
