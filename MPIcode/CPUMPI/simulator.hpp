@@ -91,7 +91,16 @@ public:
                     }
                     multipleswaps(swaps);
                 } else {
-                    swapCommand(instr.second);
+                    for (int i = 0; i < instr.second.size()/2; i++){
+                        int q1 = instr.second[2*i];
+                        int q2 = instr.second[2*i+1];
+                        if (q2 < q1) std::swap(q1, q2);
+                        if (q1 < localqbits){
+                            swapqbitBufferSwap(q1, q2);
+                        } else {
+                            globalswapqbitBufferSwap(q1, q2);
+                        }
+                    }
                 }
             } else if (instr.first == 1){
                 executeCommand(groupid);
@@ -157,7 +166,16 @@ public:
                     }
                     multipleswaps(swaps);
                 } else {
-                    swapCommand(instr.second);
+                    for (int i = 0; i < instr.second.size()/2; i++){
+                        int q1 = instr.second[2*i];
+                        int q2 = instr.second[2*i+1];
+                        if (q2 < q1) std::swap(q1, q2);
+                        if (q1 < localqbits){
+                            swapqbitBufferSwap(q1, q2);
+                        } else {
+                            globalswapqbitBufferSwap(q1, q2);
+                        }
+                    }
                 }
             } else if (instr.first == 1){
                 executeCommand(groupid);
