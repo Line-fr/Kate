@@ -31,6 +31,5 @@ Qulacs Benchmarcks 25qbits times:
 160 ms on 8xMI200
 
 
-It is currently able to run the qulacs_benchmark over 25 qbits in 3577.15 ms on an RTX 4050 mobile and in 1035.41 ms on an MI200 or in 160ms using 8xMI200x
 
 It uses multiple optimizations using transpilation and memory bandwidth optimizations when running the circuit.
